@@ -61,7 +61,7 @@ static void OnSync(const LdsePacket& pkt)
     g_synced = true;
     g_phaseOffsetMs = -(int32_t)(g_sync.GetOffsetUs() / 1000);
     g_energy.Wake();
-    printf("[REL] SYNC offset=%d us, hops=%u\n", g_sync.GetOffsetUs(), g_sync.GetHopCount());
+    printf("[REL] SYNC offset=%ld us, hops=%u\n", (long)g_sync.GetOffsetUs(), g_sync.GetHopCount());
 
     g_routing.UpdateParent(pkt.srcId, pkt.layer, pkt.rssiDbm, pkt.energyPct);
 

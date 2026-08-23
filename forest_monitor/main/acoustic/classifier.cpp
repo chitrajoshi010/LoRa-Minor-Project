@@ -34,8 +34,12 @@ const char* const ACOUSTIC_LABELS[ACOUSTIC_NUM_CLASSES] = {
     "Axe", "Chainsaw", "Gunshot", "Handsaw", "Background",
 };
 
-// Tensor arena — 270 KB verified for the tiny model on internal DRAM.
-#define TENSOR_ARENA_SIZE (270 * 1024)
+// Tensor arena — 260 KB (per project docs) for the tiny model on internal
+// DRAM. NOTE: the previous 270 KB here overflowed the ESP32-S3's internal
+// DRAM segment by ~3.2 KB once the rest of main/ldse/main.cpp's own BSS
+// was linked in (dram0_0_seg overflow at link time); 260 KB is what
+// AGENTS.md/CLAUDE.md document as the verified arena size.
+#define TENSOR_ARENA_SIZE (260 * 1024)
 static uint8_t tensor_arena[TENSOR_ARENA_SIZE];
 
 static SemaphoreHandle_t s_lock = nullptr;

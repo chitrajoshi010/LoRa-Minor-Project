@@ -4,6 +4,11 @@
  * Announces layer 1, sends FTSP sync beacons during the SYNC window, and logs
  * received node data / fire alerts to serial as CSV. Stays awake as the
  * mains-powered network sink. No sensors or classifier are compiled here.
+ *
+ * Also brings up Wi-Fi station mode (net/wifi_manager) for onward delivery
+ * of the CSV/DATA|FIRE stream (e.g. to Firebase). wifi_manager_init() is
+ * non-blocking - it starts connecting and returns immediately so SYNC
+ * beacons keep firing on schedule with or without an IP yet.
  */
 
 #include "sdkconfig.h"
@@ -18,6 +23,8 @@
 #include "ldse/LdseRadio.h"
 #include "ldse/LdseSync.h"
 #include "payload.h"
+
+#include "net/wifi_manager.h"
 
 using namespace ldse;
 
@@ -94,6 +101,11 @@ static void LogPacket(const LdsePacket& pkt, uint32_t nowMs)
 void ldse_gateway_main()
 {
     printf("[LDSE] Gateway (layer 0)\n");
+
+    // Non-blocking: starts connecting and returns immediately. Must come
+    // before the LDSE radio/loop init below so SYNC beacons are never
+    // delayed waiting on Wi-Fi (see .claude/wifi/SKILL.md constraint #1).
+    wifi_manager_init();
 
     g_sync.Begin(0.0f); // gateway is the reference clock
     g_sync.SetHopCount(0);

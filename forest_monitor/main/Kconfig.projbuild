@@ -50,4 +50,23 @@ menu "LDSE forest-monitor configuration"
 
     endmenu
 
+    menu "Gateway Wi-Fi"
+        depends on LDSE_ROLE = 0
+
+        config GATEWAY_WIFI_SSID
+            string "Wi-Fi SSID (phone hotspot / router)"
+            default ""
+            help
+                SSID the gateway (role 0, ESP32-WROOM-32) connects to in
+                station mode. Gateway-only: relay and node roles do not
+                carry Wi-Fi.
+
+        config GATEWAY_WIFI_PASSWORD
+            string "Wi-Fi password"
+            default ""
+            help
+                Leave empty for an open network. WPA2-PSK otherwise.
+
+    endmenu
+
 endmenu

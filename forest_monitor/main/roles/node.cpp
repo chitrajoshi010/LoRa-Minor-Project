@@ -61,7 +61,7 @@ static void OnSync(const LdsePacket& pkt)
     g_synced = true;
     g_phaseOffsetMs = -(int32_t)(g_sync.GetOffsetUs() / 1000);
     g_energy.Wake();
-    printf("[NODE] SYNC offset=%d us, hops=%u\n", g_sync.GetOffsetUs(), g_sync.GetHopCount());
+    printf("[NODE] SYNC offset=%ld us, hops=%u\n", (long)g_sync.GetOffsetUs(), g_sync.GetHopCount());
     g_routing.UpdateParent(pkt.srcId, g_layer ? g_layer - 1 : pkt.layer, pkt.rssiDbm, pkt.energyPct);
 }
 
@@ -257,9 +257,9 @@ void ldse_node_main()
             {
                 g_energy.EnterSleep();
                 g_radio.Sleep();
-                printf("[NODE] Sleep: energy=%.3f J battery=%.1f mAh txOK=%u txFail=%u\n",
+                printf("[NODE] Sleep: energy=%.3f J battery=%.1f mAh txOK=%lu txFail=%lu\n",
                        g_energy.GetEnergyConsumedJ(), g_energy.GetBatteryMouth(),
-                       g_txSuccess, g_txFail);
+                       (unsigned long)g_txSuccess, (unsigned long)g_txFail);
             }
             g_lastWindow = win;
         }

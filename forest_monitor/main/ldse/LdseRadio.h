@@ -12,6 +12,7 @@
 
 #include <RadioLib.h>
 
+#include "EspHal.h"
 #include "LdseConfig.h"
 #include "LdsePacket.h"
 

@@ -3,8 +3,8 @@
 /*
  * dht22.h - DHT22 (AM2302) temperature/humidity read wrapper.
  *
- * Backed by the chmorgan/esp-dht component (bit-banged single-wire driver).
- * Data line on GPIO12.
+ * Self-contained bit-banged single-wire driver (no external managed
+ * component - see dht22.cpp for why). Data line on GPIO12.
  */
 
 #include <stdbool.h>
