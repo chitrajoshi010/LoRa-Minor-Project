@@ -1,0 +1,53 @@
+menu "LDSE forest-monitor configuration"
+
+    config LDSE_ROLE
+        int "Device role (0=gateway, 1=relay, 2=node)"
+        range 0 2
+        default 0
+        help
+            Selects which role this firmware image runs.
+            0 = gateway (ESP32-WROOM-32, mains-powered sink),
+            1 = relay   (ESP32-S3, forwarder + sensors + acoustic classifier),
+            2 = node    (ESP32-S3, acoustic classifier + sensors).
+
+    menu "SX1278 radio pins"
+
+        config LDSE_PIN_NSS
+            int "NSS / SPI CS GPIO"
+            default 18
+
+        config LDSE_PIN_SCK
+            int "SCK / SPI clock GPIO"
+            default 13
+
+        config LDSE_PIN_MOSI
+            int "MOSI / SPI GPIO"
+            default 8
+            help
+                S3 default is GPIO8 to avoid the mic BCK on GPIO17.
+                The gateway (WROOM-32) overrides this to 23.
+
+        config LDSE_PIN_MISO
+            int "MISO / SPI GPIO"
+            default 21
+            help
+                The gateway (WROOM-32) overrides this to 19.
+
+        config LDSE_PIN_DIO0
+            int "DIO0 / RX-TX interrupt GPIO"
+            default 4
+
+        config LDSE_PIN_RST
+            int "RST / reset GPIO"
+            default 14
+
+        config LDSE_PIN_DIO1
+            int "DIO1 / CAD GPIO"
+            default 9
+            help
+                S3 default is GPIO9 to avoid the mic DIN on GPIO16.
+                The gateway (WROOM-32) overrides this to 26.
+
+    endmenu
+
+endmenu

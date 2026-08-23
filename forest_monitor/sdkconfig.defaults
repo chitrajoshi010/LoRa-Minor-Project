@@ -1,0 +1,10 @@
+# Common defaults for all roles/targets.
+# 1 kHz tick so the per-loop vTaskDelay(1) yields ~1 ms (keeps the epoch
+# scheduler responsive while still feeding the task watchdog).
+CONFIG_FREERTOS_HZ=1000
+
+# The role loops run in the main task; give it comfortable headroom.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Serial console at 115200 (matches the LDSE bench tooling).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y

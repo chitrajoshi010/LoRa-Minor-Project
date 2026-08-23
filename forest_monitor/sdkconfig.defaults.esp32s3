@@ -1,0 +1,9 @@
+# S3 targets: ESP32-S3 relay (role 1) and node (role 2).
+# The mic uses GPIO17 (BCK) and GPIO16 (DIN), which collide with the classic
+# LDSE MOSI=17 / DIO1=16. The S3 radio is therefore remapped to MOSI=8, DIO1=9.
+#
+# Default role here is 2 (node). For the relay board, override the role:
+#   idf.py -D CONFIG_LDSE_ROLE=1 build      (or set it in menuconfig)
+CONFIG_LDSE_ROLE=2
+CONFIG_LDSE_PIN_MOSI=8
+CONFIG_LDSE_PIN_DIO1=9

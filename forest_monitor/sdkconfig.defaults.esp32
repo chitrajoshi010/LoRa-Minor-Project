@@ -1,0 +1,7 @@
+# Gateway target: ESP32-WROOM-32 (role 0).
+# The WROOM-32 devkit does not break out GPIO16/17, so the radio uses
+# MOSI=23, MISO=19, DIO1=26 (NSS/SCK/DIO0/RST are the shared defaults).
+CONFIG_LDSE_ROLE=0
+CONFIG_LDSE_PIN_MOSI=23
+CONFIG_LDSE_PIN_MISO=19
+CONFIG_LDSE_PIN_DIO1=26
