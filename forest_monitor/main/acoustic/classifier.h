@@ -14,6 +14,15 @@
 
 #define ACOUSTIC_NUM_CLASSES 5
 
+// Last class index (4, "Background") is the only non-threat class; every
+// other class (Axe/Chainsaw/Gunshot/Handsaw) is a threat class.
+#define ACOUSTIC_BACKGROUND_CLASS (ACOUSTIC_NUM_CLASSES - 1)
+
+// Minimum confidence the model must report on a threat class before we
+// consider it a real detection. Below this, treat it the same as
+// Background/uncertain: no alert. See classifier_is_threat().
+#define ACOUSTIC_ALERT_THRESHOLD 0.70f
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -33,6 +42,14 @@ bool classifier_start(void);
 
 /** Copy the most recent inference result. @return false if none yet. */
 bool classifier_get_latest(AcousticResult* out);
+
+/**
+ * Decide whether the latest inference is worth alerting on:
+ * argmax class is a threat class (not Background) AND its confidence is
+ * >= ACOUSTIC_ALERT_THRESHOLD. Background, or an uncertain threat call below
+ * threshold, is treated as "nothing to report".
+ */
+bool classifier_is_threat(const AcousticResult* r);
 
 #ifdef __cplusplus
 }
