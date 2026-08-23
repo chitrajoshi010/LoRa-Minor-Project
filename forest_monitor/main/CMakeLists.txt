@@ -43,11 +43,16 @@ set(reqs
     esp_adc
     esp_driver_i2s
     esp-tflite-micro
-    espressif__esp-dsp)
+    espressif__esp-dsp
+    esp_http_client
+    esp-tls
+    tcp_transport
+    json)
 
 if(CONFIG_LDSE_ROLE EQUAL 0)
-    # Gateway: LDSE + Wi-Fi station (net/wifi_manager) only. No sensors/classifier.
-    list(APPEND srcs "roles/gateway.cpp" "net/wifi_manager.cpp")
+    # Gateway: LDSE + Wi-Fi station (net/wifi_manager) + Firebase uploader.
+    # No sensors/classifier.
+    list(APPEND srcs "roles/gateway.cpp" "net/wifi_manager.cpp" "net/firebase_uploader.cpp")
     list(APPEND incdirs "net")
 elseif(CONFIG_LDSE_ROLE EQUAL 1)
     # Relay: LDSE + sensors + fire scoring + acoustic classifier.

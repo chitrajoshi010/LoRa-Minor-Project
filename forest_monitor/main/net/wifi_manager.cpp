@@ -14,11 +14,13 @@
 #include "net/wifi_manager.h"
 
 #include <string.h>
+#include <time.h>
 
 #include "sdkconfig.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
@@ -126,6 +128,14 @@ void wifi_manager_init(void)
     // Non-blocking by design: do not wait on WIFI_CONNECTED_BIT here. The
     // caller (ldse_gateway_main) must enter its LDSE loop immediately after
     // this returns, with or without an IP yet.
+
+    // SNTP so firebase_uploader's "timestamp" field is real Unix epoch
+    // seconds, not just millis()-since-boot. Also non-blocking - it syncs
+    // opportunistically once Wi-Fi is up (see IP_EVENT_STA_GOT_IP above)
+    // and firebase_uploader treats an unsynced clock (time() < 2020-01-01)
+    // as "no timestamp available yet" rather than a hard error.
+    esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_netif_sntp_init(&sntp_cfg);
 }
 
 bool wifi_manager_is_connected(void)

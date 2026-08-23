@@ -69,4 +69,71 @@ menu "LDSE forest-monitor configuration"
 
     endmenu
 
+    menu "Firebase upload (mesh schema)"
+        depends on LDSE_ROLE = 0
+
+        config FIREBASE_UPLOAD_ENABLE
+            bool "Push received DATA/FIRE packets to Firebase RTDB"
+            default y
+            help
+                When enabled, every decoded MSG_DATA / MSG_FIRE_ALERT packet
+                is queued for upload to Firebase Realtime Database (mesh
+                schema: /nodes/{nodeId}/latest + /nodes/{nodeId}/history),
+                in addition to the existing serial CSV log. Gated on
+                wifi_manager_is_connected() at upload time - disable this if
+                you only want the serial CSV / serial_to_firebase.py bridge.
+
+        config FIREBASE_API_KEY
+            string "Firebase Web API key"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default ""
+            help
+                From Firebase Console -> Project settings -> General ->
+                Web API Key. Must match Dashboard/env.js's apiKey.
+
+        config FIREBASE_DB_URL
+            string "Firebase Realtime Database URL"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default ""
+            help
+                e.g. https://your-project-default-rtdb.firebaseio.com
+                (no trailing slash). Must match Dashboard/env.js's
+                databaseURL.
+
+        config FIREBASE_AUTH_EMAIL
+            string "Firebase auth email"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default ""
+            help
+                Email/password account (Firebase Authentication) the
+                gateway signs in as to obtain a write-authorized idToken.
+                Matches the account used by serial_to_firebase.py / the
+                legacy ESP32 firmware's FIREBASE_EMAIL.
+
+        config FIREBASE_AUTH_PASSWORD
+            string "Firebase auth password"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default ""
+
+        config FIREBASE_NODE_KEY_NODE
+            string "Firebase /nodes/{key} for LDSE_NODE_ID (layer-2 origin)"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default "ForestNode-01"
+            help
+                This firmware currently uses fixed role IDs (single-hop
+                demo: one gateway + one relay + one node), not per-device
+                unique IDs. This is the Firebase node key used for packets
+                whose originId == LDSE_NODE_ID (2).
+
+        config FIREBASE_NODE_KEY_RELAY
+            string "Firebase /nodes/{key} for LDSE_RELAY_ID (layer-1 origin)"
+            depends on FIREBASE_UPLOAD_ENABLE
+            default "ForestNode-02"
+            help
+                Firebase node key used for packets whose originId ==
+                LDSE_RELAY_ID (1) - the relay also carries its own
+                sensors/classifier and can originate MSG_DATA/MSG_FIRE_ALERT.
+
+    endmenu
+
 endmenu

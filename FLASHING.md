@@ -102,7 +102,7 @@ errors:
 
 | Role    | Target   | `CONFIG_LDSE_ROLE` | Result | Flash headroom |
 |---------|----------|--------------------|--------|-----------------|
-| Gateway | esp32    | 0 (default)        | ✅ builds | 23% free of 1 MB app partition |
+| Gateway | esp32    | 0 (default)        | ✅ builds | 9% free of 1 MB app partition (was 23% before the Firebase/TLS additions below) |
 | Relay   | esp32s3  | 1                  | ✅ builds | 46% free |
 | Node    | esp32s3  | 2 (default)        | ✅ builds | 46% free |
 
@@ -122,9 +122,15 @@ test (gateway ↔ relay ↔ node) is actually run:
   the actual STA connect/backoff/reconnect behavior needs a real Wi-Fi AP to
   verify. Set `CONFIG_GATEWAY_WIFI_SSID`/`CONFIG_GATEWAY_WIFI_PASSWORD` via
   `idf.py menuconfig` (or `sdkconfig.defaults.esp32`) before flashing the
-  gateway, otherwise it will try to connect to an empty SSID. **Note:** this
-  only brings up connectivity — no Firebase/HTTP upload path exists yet; see
-  the "Gateway Wi-Fi" section above for what's missing.
+  gateway, otherwise it will try to connect to an empty SSID.
+- **Firebase uploader** (`net/firebase_uploader.cpp`, new) — compiles/links
+  and follows the same REST auth flow already proven by
+  `serial_to_firebase.py`, but the actual HTTP round trips (auth sign-in,
+  TLS handshake against `identitytoolkit.googleapis.com`/
+  `*.firebaseio.com`, RTDB writes) have **not** been exercised against a
+  real Firebase project from this firmware yet. See the "Gateway Wi-Fi +
+  Firebase upload" section below for what to set and what to check on
+  first boot.
 - **Fire-score calibration constants** (`CAL_*` in `sensors/fire_scoring.cpp`)
   are still placeholders — recalibrate per site before trusting fire alerts.
 - **Acoustic alert threshold logic** (`classifier_is_threat`,
@@ -135,72 +141,111 @@ test (gateway ↔ relay ↔ node) is actually run:
   logging in `classifier.cpp` — check that log line on first boot to confirm
   headroom).
 
-## Gateway Wi-Fi — what's actually implemented
+## Gateway Wi-Fi + Firebase upload — what's actually implemented
 
 The gateway (`CONFIG_LDSE_ROLE=0`) brings up a Wi-Fi **station connectivity
-layer** (`main/net/wifi_manager.{h,cpp}`), but as of this build it is
-**connectivity only — no data upload path exists yet**. Read this section
-before assuming the gateway pushes data to Firebase/the dashboard over Wi-Fi;
-it currently does not.
+layer** (`main/net/wifi_manager.{h,cpp}`) and, as of this pass, a **Firebase
+RTDB upload path** (`main/net/firebase_uploader.{h,cpp}`) built on top of it.
+Both compile/link cleanly as part of the gateway image; neither has been
+exercised against a real AP / real Firebase project from this firmware yet
+(see "What is still NOT verified" above).
 
-### What is done
+### Wi-Fi connectivity layer (`net/wifi_manager`)
 
-- `wifi_manager_init()` is called once, as the very first line of
+- `wifi_manager_init()` is called once, as the first line of
   `ldse_gateway_main()` in `main/roles/gateway.cpp`, **before** the LDSE
-  sync/radio loop starts.
-- It is fully **non-blocking**: it kicks off `esp_wifi_connect()` from the
-  `WIFI_EVENT_STA_START` handler and returns immediately — the gateway's
-  10 s LDSE epoch (SYNC beacon every 250 ms) is never delayed waiting on an
-  AP handshake.
+  sync/radio loop starts, and is fully **non-blocking**: it kicks off
+  `esp_wifi_connect()` from the `WIFI_EVENT_STA_START` handler and returns
+  immediately — the gateway's 10 s LDSE epoch (SYNC beacon every 250 ms) is
+  never delayed waiting on an AP handshake.
 - **Event-driven reconnect with capped exponential backoff**: on
   `WIFI_EVENT_STA_DISCONNECTED`, a retry is scheduled via a one-shot
-  `esp_timer`, starting at 1 s and doubling up to a 10 s cap on each
-  subsequent failure (reset back to 1 s the moment `IP_EVENT_STA_GOT_IP`
-  fires). This avoids a tight reconnect loop hammering a hotspot that's
-  briefly out of range.
-- `esp_wifi_set_ps(WIFI_PS_NONE)` is set immediately after `esp_wifi_start()`
-  — Wi-Fi modem-sleep power-save is disabled specifically because it's the
-  main source of timing jitter risk against the LDSE SYNC beacon cadence
-  (this was an explicit requirement from the project's Wi-Fi skill).
-- Credentials are **not hardcoded** — they come from Kconfig
-  (`CONFIG_GATEWAY_WIFI_SSID` / `CONFIG_GATEWAY_WIFI_PASSWORD`, added to
-  `main/Kconfig.projbuild` under a menu scoped `depends on LDSE_ROLE = 0`),
-  settable via `idf.py menuconfig` → "Gateway Wi-Fi" or directly in
+  `esp_timer`, starting at 1 s and doubling up to a 10 s cap (reset to 1 s
+  the moment `IP_EVENT_STA_GOT_IP` fires).
+- `esp_wifi_set_ps(WIFI_PS_NONE)` immediately after `esp_wifi_start()` — Wi-Fi
+  modem-sleep power-save is disabled because it's the main source of timing
+  jitter risk against the LDSE SYNC beacon cadence.
+- Credentials via Kconfig (`CONFIG_GATEWAY_WIFI_SSID` /
+  `CONFIG_GATEWAY_WIFI_PASSWORD`, menu scoped `depends on LDSE_ROLE = 0`),
+  settable via `idf.py menuconfig` → "Gateway Wi-Fi" or in
   `sdkconfig.defaults.esp32`.
-- `wifi_manager_is_connected()` is a public getter (backed by a FreeRTOS
-  event group bit set on `IP_EVENT_STA_GOT_IP` / cleared on disconnect) meant
-  for any future network code to gate on before attempting I/O.
-- Compiles and links cleanly as part of the gateway build (see verification
-  table above); the STA connect/backoff/reconnect state machine has **not**
-  been tested against a real access point yet.
+- `wifi_manager_is_connected()` is a public getter (FreeRTOS event group bit
+  set on `IP_EVENT_STA_GOT_IP`, cleared on disconnect) — now actually
+  consumed by `firebase_uploader.cpp` (see below).
+- Also starts SNTP (`esp_netif_sntp_init`, `pool.ntp.org`) so uploaded
+  records carry a real Unix timestamp once the clock syncs; opportunistic
+  and non-blocking, same as the Wi-Fi connect itself.
 
-### What is NOT done (do not assume this exists)
+### Firebase uploader (`net/firebase_uploader`, new)
 
-- **No Firebase/HTTP/MQTT upload code has been written.** `wifi_manager_init()`
-  brings the radio up and gets an IP, but nothing in `gateway.cpp` currently
-  calls `wifi_manager_is_connected()` or sends any request anywhere. The
-  gateway's only "output" today is `LogPacket()`'s `printf(...)` CSV line
-  over the serial console (`DATA|FIRE,epoch_ms,origin,src,hops,seq,rssi,layer,
-  class,temp,hum,gas,fire,count`) — the same format documented in
-  `ARCHITECTURE.md`/`CLAUDE.md`, but it goes to serial, not to Wi-Fi.
-- To actually get gateway data onto the Firebase-backed dashboard
-  (`Lora-based-forest-monitor-dashboard/`), you still need to add, inside
-  `LogPacket()` (or a new function called from the same place):
-  1. A check on `wifi_manager_is_connected()` before attempting any network
-     call (skip/buffer if not connected — don't block the LDSE loop).
-  2. An HTTP client (`esp_http_client`, already available as an ESP-IDF
-     component — not yet added to `main/CMakeLists.txt`'s `REQUIRES`) that
-     PUTs/POSTs the packet's fields into the `/nodes/{nodeId}/latest` and
-     `/nodes/{nodeId}/history` paths of the Firebase Realtime Database
-     schema described in the dashboard repo's `CLAUDE.md`.
-  3. Firebase REST auth (email/password sign-in, matching the existing
-     `serial_to_firebase.py`/`ESP-IDF-main` bridge pattern in the dashboard
-     repo) or an ID-token refresh flow — none of this exists in
-     `forest_monitor/` today.
-- This is a real gap, not a stylistic choice — until it's implemented, the
-  mesh firmware's data never reaches the dashboard; only serial CSV output
-  (or `scripts/seed_random_data.py`'s synthetic seeding) populates Firebase
-  today.
+- **Schema**: pushes to the mesh schema from `CLAUDE.md` —
+  `/nodes/{nodeId}/latest` (PUT, overwritten every cycle) and
+  `/nodes/{nodeId}/history` (POST, append-only) — not the legacy
+  `/predictions` + `/latest_prediction` paths.
+- **Node keys**: this firmware still uses fixed role IDs (`LDSE_NODE_ID=2`,
+  `LDSE_RELAY_ID=1`), not per-device unique IDs, so the Firebase node key is
+  looked up from a packet's `originId`: `CONFIG_FIREBASE_NODE_KEY_NODE`
+  (default `"ForestNode-01"`) for `LDSE_NODE_ID`, `CONFIG_FIREBASE_NODE_KEY_RELAY`
+  (default `"ForestNode-02"`) for `LDSE_RELAY_ID` (the relay also carries its
+  own sensors/classifier and can originate `MSG_DATA`/`MSG_FIRE_ALERT`). Gateway
+  never originates data and is never uploaded as a "node".
+- **Auth**: Firebase Identity Toolkit email/password sign-in
+  (`identitytoolkit.googleapis.com/v1/accounts:signInWithPassword`), same
+  account/flow as `serial_to_firebase.py` in the dashboard repo. The idToken
+  is cached and refreshed ~60 s before its reported expiry; a 401 on upload
+  forces one immediate re-auth + retry.
+- **Transport**: `esp_http_client` + TLS via ESP-IDF's built-in certificate
+  bundle (`esp_crt_bundle_attach`) — no pinned/custom cert needed for
+  `*.googleapis.com` / `*.firebaseio.com`. `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN`
+  (the smaller "common" bundle, ~99% coverage) is set in
+  `sdkconfig.defaults.esp32` to save flash on the already-tight 1 MB gateway
+  partition.
+  - **JSON**: hand-built with `snprintf` for the outgoing record (fixed,
+  small shape) and hand-parsed with `strstr`/`strchr` for the two auth
+  response fields needed (`idToken`, `expiresIn`) — avoids pulling a general
+  JSON parser into a path that only ever talks to two known Google endpoints.
+- **Never blocks the LDSE loop**: `firebase_uploader_enqueue()` (called from
+  `gateway.cpp`'s `LogPacket()`, right after the existing CSV `printf`) only
+  copies fields into a 4-deep FreeRTOS queue and returns; a dedicated
+  background task (`FirebaseUploadTask`, its own 8 KB stack) drains the queue
+  and does the actual HTTP calls. If the queue is full, the oldest queued
+  item is dropped to make room — CSV/serial logging remains the source of
+  truth, Firebase is best-effort onward delivery. Every upload attempt is
+  also gated on `wifi_manager_is_connected()` inside the task; if Wi-Fi is
+  down the item is silently dropped rather than retried.
+- **Credentials via Kconfig**: `CONFIG_FIREBASE_API_KEY`, `CONFIG_FIREBASE_DB_URL`,
+  `CONFIG_FIREBASE_AUTH_EMAIL`, `CONFIG_FIREBASE_AUTH_PASSWORD` — same pattern
+  as the Wi-Fi SSID/password, under `idf.py menuconfig` → "Firebase upload
+  (mesh schema)" (menu scoped `depends on LDSE_ROLE = 0`). Set these to match
+  `Lora-based-forest-monitor-dashboard/Dashboard/env.js`'s `apiKey`/`databaseURL`
+  and whatever email/password account `serial_to_firebase.py` already uses,
+  so both paths write into the same Firebase project/account.
+- **Kill switch**: `CONFIG_FIREBASE_UPLOAD_ENABLE` (default `y`) — set to `n`
+  in menuconfig to compile the gateway with Wi-Fi connectivity but no upload
+  code at all (falls back to the previous serial-only behavior), e.g. if you
+  only want to use `serial_to_firebase.py` as the upload path instead.
+
+### What is still NOT done / NOT verified here
+
+- **No real Firebase project has been hit from this firmware.** The auth
+  flow, JSON shape, and RTDB writes are logic-reviewed against the RTDB REST
+  API and against `serial_to_firebase.py`'s already-working equivalent, but
+  need a first real boot against your actual `CONFIG_FIREBASE_DB_URL` to
+  confirm end-to-end (watch for `wifi_mgr: got IP` → `fb_upload: authenticated`
+  → no `latest push failed` / `history push failed` warnings in the serial
+  log).
+- **Clock**: until SNTP syncs, `timestamp` is sent as `0` rather than a wrong
+  small number (see the `nowEpoch > 1577836800` guard in `gateway.cpp`) — if
+  you see `timestamp: 0` in Firebase, SNTP hasn't synced yet (check Wi-Fi is
+  actually connected; SNTP needs an IP first).
+- **Relay's own Firebase key** (`CONFIG_FIREBASE_NODE_KEY_RELAY`, default
+  `"ForestNode-02"`) is a placeholder pending a real second-node naming
+  decision — rename it to whatever key your dashboard/team actually wants
+  for the relay's own sensor+acoustic stream.
+- Flash headroom on the gateway dropped from 23% to 9% free (1 MB app
+  partition) after adding `esp_http_client`/`esp-tls`/`mbedtls` cert bundle —
+  still builds, but there's less room left for future gateway-side features
+  before a partition table change becomes necessary.
 
 ## Flashing checklist
 
@@ -208,15 +253,25 @@ it currently does not.
 2. Set radio pins / Wi-Fi credentials via `idf.py menuconfig` if your wiring
    differs from `sdkconfig.defaults.esp32`/`sdkconfig.defaults.esp32s3`
    (see `main/Kconfig.projbuild`).
+2a. **Gateway only**: also set `CONFIG_GATEWAY_WIFI_SSID`/`_PASSWORD` and, if
+    you want Firebase upload, `CONFIG_FIREBASE_API_KEY`/`_DB_URL`/
+    `_AUTH_EMAIL`/`_AUTH_PASSWORD` (menuconfig → "Gateway Wi-Fi" /
+    "Firebase upload (mesh schema)") to match your Firebase project and
+    `Lora-based-forest-monitor-dashboard/Dashboard/env.js`. Set
+    `CONFIG_FIREBASE_UPLOAD_ENABLE=n` to skip Firebase entirely and keep
+    serial-CSV-only behavior.
 3. `idf.py fullclean` before switching `--target`.
 4. `idf.py set-target <esp32|esp32s3>`.
 5. For relay specifically, remember `-D CONFIG_LDSE_ROLE=1` (node is the
    esp32s3 default, i.e. role 2, if you don't pass this flag).
 6. `idf.py -p <PORT> flash monitor` and watch the serial log:
-   - Gateway: Wi-Fi connect messages, then CSV log lines
-     (`DATA|FIRE,epoch_ms,...`).
+   - Gateway: `wifi_mgr: connecting...` → `wifi_mgr: got IP, connected` →
+     (if Firebase enabled) `fb_upload: authenticated` → CSV log lines
+     (`DATA|FIRE,epoch_ms,...`) with no `latest push failed`/`history push
+     failed` warnings.
    - Relay/Node: `interpreter.arena_used_bytes()` log, DHT22 read results,
      LDSE sync offset logs.
 7. Bench-test all three boards together (gateway + relay + node powered on
    simultaneously) to confirm the LDSE mesh actually forms and forwards
-   packets — this has not been done as part of this fix pass.
+   packets, and that data lands in Firebase/the dashboard — this has not
+   been done as part of this fix pass.

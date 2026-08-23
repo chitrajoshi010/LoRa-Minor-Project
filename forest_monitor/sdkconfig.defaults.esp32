@@ -5,3 +5,12 @@ CONFIG_LDSE_ROLE=0
 CONFIG_LDSE_PIN_MOSI=23
 CONFIG_LDSE_PIN_MISO=19
 CONFIG_LDSE_PIN_DIO1=26
+
+# Firebase upload (net/firebase_uploader.cpp) needs TLS to talk to
+# *.googleapis.com / *.firebaseio.com. The "common" cert bundle (~99%
+# coverage, Google's roots included) is ~35 KB smaller than the full
+# bundle - worth it since this 1 MB app partition (2 MB flash,
+# single_app table) is already tight once esp_http_client/mbedtls/esp-tls
+# are linked in for the gateway image.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y

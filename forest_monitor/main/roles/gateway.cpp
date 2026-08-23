@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "esp_log.h"
 
 #include "ldse/LdseConfig.h"
@@ -25,6 +26,7 @@
 #include "payload.h"
 
 #include "net/wifi_manager.h"
+#include "net/firebase_uploader.h"
 
 using namespace ldse;
 
@@ -96,6 +98,19 @@ static void LogPacket(const LdsePacket& pkt, uint32_t nowMs)
            haveNp ? np.gas : 0.0f,
            haveNp ? np.fireScore : 0.0f,
            (unsigned long)g_dataPackets);
+
+    if (haveNp)
+    {
+        // Best-effort onward delivery to Firebase (mesh schema). Never
+        // blocks: enqueue() drops the item if Wi-Fi is down or the small
+        // upload queue is full. Clock may not be NTP-synced yet (SNTP is
+        // opportunistic in wifi_manager) - treat anything before roughly
+        // 2020-01-01 as "no wall clock yet" and send 0 rather than a
+        // meaningless small number.
+        time_t nowEpoch = time(nullptr);
+        uint32_t epochSec = (nowEpoch > 1577836800) ? (uint32_t)nowEpoch : 0;
+        firebase_uploader_enqueue(pkt, epochSec, g_dataPackets);
+    }
 }
 
 void ldse_gateway_main()
@@ -106,6 +121,10 @@ void ldse_gateway_main()
     // before the LDSE radio/loop init below so SYNC beacons are never
     // delayed waiting on Wi-Fi (see .claude/wifi/SKILL.md constraint #1).
     wifi_manager_init();
+
+    // Starts the background upload task/queue. Also non-blocking - the
+    // task itself gates every upload on wifi_manager_is_connected().
+    firebase_uploader_init();
 
     g_sync.Begin(0.0f); // gateway is the reference clock
     g_sync.SetHopCount(0);
