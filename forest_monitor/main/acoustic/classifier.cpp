@@ -164,3 +164,15 @@ bool classifier_get_latest(AcousticResult* out)
     xSemaphoreGive(s_lock);
     return have;
 }
+
+bool classifier_is_threat(const AcousticResult* r)
+{
+    if (r == nullptr)
+    {
+        return false;
+    }
+    // Background (or an uncertain threat call below the confidence
+    // threshold) is not an alert-worthy detection.
+    return r->classIdx != ACOUSTIC_BACKGROUND_CLASS &&
+           r->confidence[r->classIdx] >= ACOUSTIC_ALERT_THRESHOLD;
+}

@@ -4,9 +4,11 @@
  * Learns layer 1 from the gateway, forwards the sync beacon to the node,
  * listens for node data on Prc1 and forwards it to the gateway on Puc with
  * CAD + backoff and congestion control. Additionally samples its own MQ-135 +
- * DHT22 + INMP441 mic (via the background acoustic classifier task) and
- * raises a fire alert (carrying the latest acoustic class) when its
- * fire-risk score exceeds the threshold.
+ * DHT22 + INMP441 mic (via the background acoustic classifier task) each
+ * epoch and raises an alert to the gateway (carrying the latest acoustic
+ * class) when either its fire-risk score exceeds FIRE_ALERT_THRESHOLD or the
+ * classifier reports a threat class (Axe/Chainsaw/Gunshot/Handsaw) with
+ * confidence >= ACOUSTIC_ALERT_THRESHOLD (see classifier_is_threat()).
  */
 
 #include "sdkconfig.h"
@@ -145,9 +147,12 @@ static void DrainQueue()
     }
 }
 
-// Sample local sensors (gas + temp/humidity + acoustic classifier) and raise
-// a fire alert to the gateway when the fire-risk score exceeds the threshold.
-static void RelayFireCheck()
+// Sample local sensors (gas + temp/humidity) and the acoustic classifier,
+// then raise an alert to the gateway when either the fire-risk score or the
+// acoustic threat confidence exceeds its threshold (see
+// classifier_is_threat()). Background/low-confidence epochs with no fire
+// risk send nothing.
+static void RelayAlertCheck()
 {
     AcousticResult ar;
     bool haveAc = classifier_get_latest(&ar);
@@ -155,7 +160,10 @@ static void RelayFireCheck()
     dht22_read(&temp, &hum);
     float gas = mq135_read_mv();
     float score = fire_score_compute(gas, temp, hum);
-    if (score < FIRE_ALERT_THRESHOLD)
+
+    bool fire = score >= FIRE_ALERT_THRESHOLD;
+    bool acousticAlert = haveAc && classifier_is_threat(&ar);
+    if (!fire && !acousticAlert)
     {
         return;
     }
@@ -176,7 +184,7 @@ static void RelayFireCheck()
     np.fireScore = score;
 
     LdsePacket pkt;
-    pkt.type = MSG_FIRE_ALERT;
+    pkt.type = fire ? MSG_FIRE_ALERT : MSG_DATA;
     pkt.srcId = LDSE_RELAY_ID;
     pkt.dstId = LDSE_GATEWAY_ID;
     pkt.originId = LDSE_RELAY_ID;
@@ -189,8 +197,8 @@ static void RelayFireCheck()
     g_radio.SetChannel(LDSE_FREQ_PUC_MHZ, g_forwarder.GetDataSpreadingFactor());
     g_radio.Standby();
     g_forwarder.TryTransmit(g_radio, pkt, LDSE_GATEWAY_ID);
-    printf("[REL] FIRE alert score=%.3f temp=%.1f gas=%.0f class=%s\n",
-           score, temp, gas, haveAc ? ACOUSTIC_LABELS[np.classIdx] : "n/a");
+    printf("[REL] %s alert score=%.3f temp=%.1f gas=%.0f class=%s\n",
+           fire ? "FIRE" : "ACOUSTIC", score, temp, gas, haveAc ? ACOUSTIC_LABELS[np.classIdx] : "n/a");
 }
 
 void ldse_relay_main()
@@ -298,11 +306,11 @@ void ldse_relay_main()
             // Phase B: forward the queue to the gateway on the Puc.
             DrainQueue();
 
-            // Phase C: local fire check (once per epoch).
+            // Phase C: local alert check - fire risk + acoustic threat (once per epoch).
             if ((uint32_t)(nowMs - g_lastFireEpochMs) >= LDSE_EPOCH_MS)
             {
                 g_lastFireEpochMs = nowMs;
-                RelayFireCheck();
+                RelayAlertCheck();
             }
         }
 

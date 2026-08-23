@@ -3,10 +3,14 @@
  *
  * Runs the acoustic classifier in a background task and, each DATA window,
  * builds a NodePayload from the latest inference plus the MQ-135 / DHT22
- * readings and its fire-risk score. Sends MSG_DATA to the relay on Prc1; if
- * the fire score exceeds the threshold it sends MSG_FIRE_ALERT instead, and if
- * the relay is unreachable/congested it bypasses directly to the gateway on
- * Puc (LdseForwarder::ShouldBypassToGateway).
+ * readings and its fire-risk score. A packet is only sent when there is
+ * something to report: fire score >= FIRE_ALERT_THRESHOLD, or the acoustic
+ * classifier's argmax is a threat class (Axe/Chainsaw/Gunshot/Handsaw) with
+ * confidence >= ACOUSTIC_ALERT_THRESHOLD (see classifier_is_threat()).
+ * Background / low-confidence epochs send nothing. Sends MSG_DATA to the
+ * relay on Prc1; if the fire score exceeds the threshold it sends
+ * MSG_FIRE_ALERT instead, and if the relay is unreachable/congested it
+ * bypasses directly to the gateway on Puc (LdseForwarder::ShouldBypassToGateway).
  */
 
 #include "sdkconfig.h"
@@ -99,6 +103,16 @@ static void SendData()
     float gas = mq135_read_mv();
     float score = fire_score_compute(gas, temp, hum);
 
+    bool fire = score >= FIRE_ALERT_THRESHOLD;
+    bool acousticAlert = haveAc && classifier_is_threat(&ar);
+
+    if (!fire && !acousticAlert)
+    {
+        // Background, or a threat call below ACOUSTIC_ALERT_THRESHOLD, and
+        // no fire risk this epoch: nothing worth spending airtime/energy on.
+        return;
+    }
+
     NodePayload np = {};
     if (haveAc)
     {
@@ -116,7 +130,6 @@ static void SendData()
 
     uint8_t parent = g_routing.SelectBestParent();
     uint8_t sf = g_forwarder.GetDataSpreadingFactor();
-    bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool bypass = g_forwarder.ShouldBypassToGateway();
 
     LdsePacket pkt;
