@@ -17,12 +17,22 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "PATH=%IDF_ROOT%\tools\idf-python\3.11.2;%IDF_ROOT%\tools\idf-git\2.44.0\cmd;%PATH%"
-
 call "%IDF_EXPORT%"
 if errorlevel 1 (
     echo ERROR: ESP-IDF environment setup failed.
     exit /b 1
+)
+
+rem export.bat sets IDF_PYTHON_ENV_PATH to the venv it activated. Invoke idf.py
+rem via that venv's python.exe explicitly, rather than relying on PATH order,
+rem so idf.py always runs with the venv that has "click" etc. installed
+rem (avoids "No module named 'click'" when a bare/base interpreter or a second
+rem installed venv wins the PATH race).
+set "IDF_PY_PYTHON=python"
+if not "%IDF_PYTHON_ENV_PATH%"=="" (
+    if exist "%IDF_PYTHON_ENV_PATH%\Scripts\python.exe" (
+        set "IDF_PY_PYTHON=%IDF_PYTHON_ENV_PATH%\Scripts\python.exe"
+    )
 )
 
 set TARGET=esp32
@@ -59,8 +69,8 @@ echo ============================================
 echo Target: %TARGET%   Role options: %ROLE_OPTS%
 echo ============================================
 
-python "%IDF_PATH%\tools\idf.py" set-target %TARGET%
+"%IDF_PY_PYTHON%" "%IDF_PATH%\tools\idf.py" set-target %TARGET%
 if errorlevel 1 exit /b 1
 
-python "%IDF_PATH%\tools\idf.py" build %ROLE_OPTS%
+"%IDF_PY_PYTHON%" "%IDF_PATH%\tools\idf.py" build %ROLE_OPTS%
 exit /b %errorlevel%
