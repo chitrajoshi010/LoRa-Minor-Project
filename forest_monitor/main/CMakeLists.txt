@@ -58,6 +58,7 @@ elseif(CONFIG_LDSE_ROLE EQUAL 1)
     # Relay: LDSE + sensors + fire scoring + acoustic classifier.
     list(APPEND srcs
         "roles/relay.cpp"
+        "ldse/LdseSleepGate.cpp"
         "sensors/mq135.cpp"
         "sensors/dht22.cpp"
         "sensors/fire_scoring.cpp"
@@ -69,6 +70,7 @@ else()
     # Node: LDSE + sensors + acoustic classifier.
     list(APPEND srcs
         "roles/node.cpp"
+        "ldse/LdseSleepGate.cpp"
         "sensors/mq135.cpp"
         "sensors/dht22.cpp"
         "sensors/fire_scoring.cpp"

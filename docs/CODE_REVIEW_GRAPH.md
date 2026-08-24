@@ -1,6 +1,9 @@
 # Forest Monitor — Code Review Graph
 
-> Generated code review for `forest_monitor/` (the canonical unified firmware).
+> **Archived point-in-time report** (moved from repo root to `docs/` — not
+> living documentation; findings may be stale/already fixed, see `FLASHING.md`
+> for the current verified-build status). Generated code review for
+> `forest_monitor/` (the canonical unified firmware).
 > Scope: correctness of the LDSE protocol role code, the acoustic pipeline, and
 > the fire-scoring path. No host unit tests exist; "verified" = all 3 configs
 > compile and the 3-board bench boots (gateway → relay → node).

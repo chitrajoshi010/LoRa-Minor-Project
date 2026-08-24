@@ -50,6 +50,21 @@ menu "LDSE forest-monitor configuration"
 
     endmenu
 
+    menu "Sleep MOSFET gate"
+        depends on LDSE_ROLE = 1 || LDSE_ROLE = 2
+
+        config LDSE_PIN_SLEEP_GATE
+            int "Sleep MOSFET gate/base GPIO"
+            default 10
+            help
+                Relay/node only. Gate (or base) of the load-switch MOSFET
+                that powers the peripheral rail (MQ-135, DHT22, INMP441
+                mic). Driven HIGH during SYNC/DATA and LOW during the SLEEP
+                window, on the schedule the child receives from its parent
+                (gateway/relay) via FTSP sync - see LdseSleepGate.h.
+
+    endmenu
+
     menu "Gateway Wi-Fi"
         depends on LDSE_ROLE = 0
 

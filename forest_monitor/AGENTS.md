@@ -48,6 +48,9 @@ and the three-board bench boots (gateway -> relay -> node).
    defaulted per target in `sdkconfig.defaults.esp32{,s3}`.
 - **Never** set S3 MOSI=17 or DIO1=16 - they collide with the mic
    (BCK=17, DIN=16). S3 uses MOSI=8, DIO1=9. Gateway (WROOM-32) uses 23/19/26.
+- Relay/node only: `CONFIG_LDSE_PIN_SLEEP_GATE` (default GPIO10) drives a
+   peripheral-power MOSFET gate/base via `LdseSleepGate` - HIGH during
+   SYNC/DATA, LOW during SLEEP, on the parent-synced epoch schedule.
 
 ## Sensors (main/sensors/)
 

@@ -31,6 +31,10 @@
 #define LDSE_PIN_RST  CONFIG_LDSE_PIN_RST
 #define LDSE_PIN_DIO1 CONFIG_LDSE_PIN_DIO1
 
+// Relay/node only: gate/base of the peripheral-power MOSFET, toggled by
+// LdseSleepGate on the SYNC/DATA <-> SLEEP window transition.
+#define LDSE_PIN_SLEEP_GATE CONFIG_LDSE_PIN_SLEEP_GATE
+
 // ---------------- Radio parameters (paper Table 3) ----------------
 #define LDSE_BW_KHZ 125.0f
 #define LDSE_SF_NORMAL 9

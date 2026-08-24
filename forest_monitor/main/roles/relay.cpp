@@ -24,6 +24,7 @@
 #include "ldse/LdsePacket.h"
 #include "ldse/LdseRadio.h"
 #include "ldse/LdseRouting.h"
+#include "ldse/LdseSleepGate.h"
 #include "ldse/LdseSync.h"
 #include "payload.h"
 
@@ -41,6 +42,7 @@ static LdseSync g_sync;
 static LdseRouting g_routing;
 static LdseForwarder g_forwarder;
 static LdseEnergy g_energy;
+static LdseSleepGate g_sleepGate;
 
 static uint8_t g_layer = 0;
 static uint8_t g_lastWindow = WIN_SLEEP;
@@ -207,6 +209,7 @@ void ldse_relay_main()
 
     g_sync.Begin(LDSE_DRIFT_PPM);
     g_energy.Begin();
+    g_sleepGate.Begin();
     g_forwarder.SetGatewayId(LDSE_GATEWAY_ID);
     g_forwarder.SetRelayCapacity(LDSE_RELAY_QUEUE_CAPACITY);
 
@@ -256,16 +259,19 @@ void ldse_relay_main()
             if (win == WIN_SYNC)
             {
                 g_energy.Wake();
+                g_sleepGate.Wake();
                 g_radio.SetChannel(LDSE_FREQ_PUC_MHZ, LDSE_SF_NORMAL);
             }
             else if (win == WIN_DATA)
             {
                 g_energy.Wake();
+                g_sleepGate.Wake();
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
             else // WIN_SLEEP
             {
                 g_energy.EnterSleep();
+                g_sleepGate.Sleep();
                 g_radio.Sleep();
                 printf("[REL] Sleep: energy=%.3f J battery=%.1f mAh\n",
                        g_energy.GetEnergyConsumedJ(), g_energy.GetBatteryMouth());

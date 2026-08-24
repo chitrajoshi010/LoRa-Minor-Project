@@ -33,50 +33,21 @@ It combines:
 - **Acoustic classifier** (I2S INMP441 → log-mel spectrogram → TFLite Micro, 5 classes: Axe, Chainsaw, Gunshot, Handsaw, Background), in `main/acoustic/`.
 - **Fire scoring** from MQ-135 + DHT22 (relay and node), in `main/sensors/`.
 
-### Quick build
+For the build/flash commands, wiring tables, node payload layout, and
+fire-score calibration notes, see **[`forest_monitor/README.md`](./forest_monitor/README.md)**
+(the single source of truth for those details — not duplicated here).
 
-```sh
-. "$HOME/Minor_Project/esp-idf/export.sh"
+## Where to find what
 
-PROJECT_DIR="$HOME/Minor_Project/forest_monitor"
-
-# Gateway (ESP32-WROOM-32)
-cd "$PROJECT_DIR" && idf.py set-target esp32 && idf.py build
-
-# Node (ESP32-S3, default role = 2)
-cd "$PROJECT_DIR" && idf.py set-target esp32s3 && idf.py build
-
-# Relay (ESP32-S3, override role to 1)
-cd "$PROJECT_DIR" && idf.py set-target esp32s3 && idf.py -D CONFIG_LDSE_ROLE=1 build
-```
-
-> **Adjust the toolchain path** to wherever you keep ESP-IDF. If you prefer the standard `~/esp/esp-idf`, change the first line.
-
-### Wiring (SX1278 LoRa, per board)
-
-| Signal | Gateway (WROOM-32) | Relay / Node (S3) |
-|---|---|---|
-| NSS  | GPIO18 | GPIO18 |
-| SCK  | GPIO13 | GPIO13 |
-| MOSI | GPIO23 | **GPIO8** |
-| MISO | GPIO19 | GPIO21 |
-| DIO0 | GPIO4  | GPIO4  |
-| RST  | GPIO14 | GPIO14 |
-| DIO1 | GPIO26 | **GPIO9** |
-
-> **GPIO conflict resolution (relay & node):** the INMP441 mic uses GPIO17 (BCK) and GPIO16 (DIN), which would collide with the classic LDSE MOSI=17 / DIO1=16. The S3 radio is remapped to **MOSI=8, DIO1=9**.
-
-### Sensors & microphone (relay & node, S3)
-
-| Peripheral | GPIO | Notes |
-|---|---|---|
-| INMP441 mic BCK | 17 | I2S (relay & node) |
-| INMP441 mic WS  | 15 | I2S (relay & node) |
-| INMP441 mic DIN | 16 | I2S (relay & node) |
-| MQ-135 AOUT | 2 | ADC1_CH1, esp_adc oneshot |
-| DHT22 DATA  | 12 | chmorgan/esp-dht |
-
-See `forest_monitor/README.md` for payload layout, fire-score calibration, and node-data flow.
+| Need | Read |
+|---|---|
+| Build/flash instructions, wiring, payload format | [`forest_monitor/README.md`](./forest_monitor/README.md) |
+| Plain-language walkthrough (for examiners) | [`forest_monitor/explain.md`](./forest_monitor/explain.md) |
+| Full file-by-file architecture map | [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
+| AI coding agent instructions (Copilot, Claude Code) | [`AGENTS.md`](./AGENTS.md) (`CLAUDE.md` just points here) |
+| Build-fix log / what's verified vs. not yet tested on hardware | [`FLASHING.md`](./FLASHING.md) |
+| Academic report | [`Minor_project_Mid_term_diffence.md`](./Minor_project_Mid_term_diffence.md) |
+| Archived one-off code review notes | [`docs/CODE_REVIEW_GRAPH.md`](./docs/CODE_REVIEW_GRAPH.md) |
 
 ## Tools
 

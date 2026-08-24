@@ -66,6 +66,7 @@ forest_monitor/
 | INMP441 mic DIN | 16 | I2S (relay & node) |
 | MQ-135 AOUT | 2 | ADC1_CH1, esp_adc oneshot |
 | DHT22 DATA | 12 | chmorgan/esp-dht |
+| Sleep MOSFET gate/base | 10 | `CONFIG_LDSE_PIN_SLEEP_GATE`; HIGH during SYNC/DATA, LOW during SLEEP (`LdseSleepGate`), cuts power to the peripheral rail on the parent-synced schedule |
 
 ## Build & flash
 

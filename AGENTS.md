@@ -5,6 +5,43 @@ Guidance for AI coding agents (Claude Code, Copilot, etc.) working in
 LDSE LoRa protocol and the acoustic classifier into one ESP-IDF project with a
 build-time role (`CONFIG_LDSE_ROLE`: 0=gateway, 1=relay, 2=node).
 
+> This is the canonical instructions file for every AI agent in this repo
+> (Copilot, Claude Code, etc.). `CLAUDE.md` just points here — edit this file,
+> not that one.
+
+## Project summary
+
+ESP-IDF v5.2 firmware for **Scalable Multi-hop LoRa Networks for Intelligent
+Forest Monitoring**. One unified codebase compiles into one of three roles
+(`CONFIG_LDSE_ROLE`): **gateway** (ESP32-WROOM-32, mains sink + CSV log),
+**relay** (ESP32-S3, LoRa forwarder + fire scoring + acoustic classifier),
+**node** (ESP32-S3, on-device TinyML acoustic classifier + sensors). LDSE
+(Layered Dynamic Synchronization Energy-saving) is a custom multi-hop LoRa
+protocol on 433 MHz SX1278 (RadioLib).
+
+Canonical firmware lives in `forest_monitor/`. Mid-term academic report is
+`Minor_project_Mid_term_diffence.md`. Architecture deep-dive is
+`ARCHITECTURE.md`. Plain-language walkthrough is `forest_monitor/explain.md`.
+
+### Module map
+
+| Module | Compiled for | Purpose |
+|---|---|---|
+| `main/ldse/` | all roles | LDSE multi-hop LoRa stack: `LdseRadio` (SX1278/RadioLib), `LdseSync` (FTSP drift sync), `LdseRouting` (IRE parent scoring), `LdseForwarder` (relay queue/CAD/backoff), `LdseEnergy` (per-node mAh model), plus `LdseCompat.h`, `LdseConfig.h`, `LdsePacket.h`, `LdseEpoch.h`. |
+| `main/sensors/` | relay + node | `mq135`, `dht22`, `fire_scoring` (report Eq. 3.4: `0.51·ΔCO₂ + 0.37·ΔT + 0.12·ΔH`, threshold 3.0). |
+| `main/acoustic/` | relay + node | `audio_capture`, `spectrogram`, `classifier` (TFLite Micro task, 260 KB arena, 5 classes). |
+| `main/roles/` | one file per role | `gateway.cpp`, `relay.cpp`, `node.cpp`. |
+
+### Runtime data flow (node)
+
+```
+INMP441 I2S -> audio_capture (DMA) -> spectrogram (FFT/mel/log/quant)
+  -> classifier (TFLite Micro)
+  -> node.cpp decision (fireScore >= 3.0 => MSG_FIRE_ALERT, conf >= 0.85 => MSG_DATA)
+  -> LdseForwarder (Prc1 433.5 MHz -> Puc 433.3 MHz; bypasses to gateway if relay congested)
+  -> relay -> gateway -> CSV log
+```
+
 ## Build / test commands
 
 All work happens from `forest_monitor/`. ESP-IDF must be sourced in every shell
@@ -79,6 +116,11 @@ and the three-board bench boots (gateway -> relay -> node).
   defaulted per target in `sdkconfig.defaults.esp32{,s3}`.
 - **Never** set S3 `MOSI=17` or `DIO1=16` — they collide with the mic
   (BCK=17, DIN=16). S3 uses MOSI=8, DIO1=9. Gateway (WROOM-32) uses 23/19/26.
+- Relay/node only: `CONFIG_LDSE_PIN_SLEEP_GATE` (default GPIO10) drives the
+  gate/base of a peripheral-power MOSFET via `LdseSleepGate`
+  (`main/ldse/LdseSleepGate.{h,cpp}`). It is driven HIGH during SYNC/DATA and
+  LOW during SLEEP, on the parent-synced epoch schedule (see
+  `LdseEpoch::GetWindow`) — not gateway; gateway has no MOSFET/sensors.
 
 ## Sensors (main/sensors/)
 

@@ -103,6 +103,20 @@ Implements: **I2S capture → framing → Hann window → FFT → mel filterbank
 | `spectrogram.h/.cpp` | 25 + 258 | Full DSP pipeline. Fills the INT8 input tensor. |
 | `classifier.h/.cpp` | 39 + 166 | FreeRTOS task. Loads model, sets up TFLite Micro interpreter with 260 KB tensor arena, runs the capture→spectrogram→invoke loop, publishes the latest result for the LDSE node. |
 
+**Acoustic alert decision (where the threat gate lives):**
+
+- `classifier.h` declares `ACOUSTIC_BACKGROUND_CLASS` (= `4`),
+  `ACOUSTIC_ALERT_THRESHOLD` (= `0.70f`), and
+  `bool classifier_is_threat(const AcousticResult* r);`.
+- `classifier.cpp` implements it: a result is a threat if the argmax class
+  isn't background and its confidence is at or above the threshold —
+  `r->classIdx != ACOUSTIC_BACKGROUND_CLASS && r->confidence[r->classIdx] >= ACOUSTIC_ALERT_THRESHOLD`.
+- `roles/node.cpp`'s `SendData()` gates transmission on
+  `fire || acousticAlert` (where `acousticAlert = haveAc && classifier_is_threat(&ar)`) —
+  nothing is sent if neither condition holds.
+- `roles/relay.cpp` applies the same gating pattern inside `RelayAlertCheck()`
+  (renamed from `RelayFireCheck`) for its own local fire/acoustic check.
+
 ### 2.5 `main/sensors/` — fire-risk stack (relay + node)
 
 | File | Lines | Purpose |
