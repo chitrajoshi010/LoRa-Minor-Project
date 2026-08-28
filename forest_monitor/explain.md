@@ -205,7 +205,7 @@ mains-powered and always fully on.
 4. Sets itself as the FTSP reference clock (`g_sync.Begin(0.0f)`, hop count 0).
 5. Brings up the SX1278 radio on the Puc channel (433.3 MHz): prints
    `[LDSE] Radio on Puc ready` (or halts with a `Radio init FAILED` log if
-   the SPI wiring is wrong).
+   the SPI wiriLoRa-Minor-Projectng is wrong).
 6. Enters its main loop: every epoch's SYNC window it broadcasts
    `LAYER_INIT` + `SYNC` beacons every 250 ms
    (`LDSE_SYNC_BEACON_PERIOD_MS`); during DATA/SLEEP windows it just listens
