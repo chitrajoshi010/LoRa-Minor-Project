@@ -19,6 +19,13 @@ static const char* TAG = "mq135";
 #define MQ135_ADC_CHANNEL ADC_CHANNEL_1 // GPIO2 on ESP32-S3
 #define MQ135_ADC_ATTEN   ADC_ATTEN_DB_12
 
+// When the sleep-gate MOSFET cuts power to the sensor/3.3V rail, GPIO2
+// floats up toward the 3.3V supply through the sensor's own load resistor
+// instead of reading a real gas concentration. Any reading pinned this close
+// to the ADC's ~3300 mV full-scale is treated as "sensor unpowered", not a
+// genuine high-CO2 reading.
+#define MQ135_RAIL_FLOAT_MV 3200.0f
+
 static adc_oneshot_unit_handle_t s_adc_handle = nullptr;
 static adc_cali_handle_t s_cali_handle = nullptr;
 static bool s_calibrated = false;
@@ -64,7 +71,7 @@ esp_err_t mq135_init(void)
     return ESP_OK;
 }
 
-float mq135_read_mv(void)
+static float mq135_read_raw_mv(void)
 {
     if (s_adc_handle == nullptr)
     {
@@ -85,4 +92,29 @@ float mq135_read_mv(void)
     }
     // 12-bit range, ~3.3 V full scale at 12 dB attenuation.
     return (float)raw * (3300.0f / 4095.0f);
+}
+
+bool mq135_read(bool peripheral_rail_powered, float* out_mv)
+{
+    float mv = mq135_read_raw_mv();
+    if (out_mv != nullptr)
+    {
+        *out_mv = mv;
+    }
+
+    if (!peripheral_rail_powered)
+    {
+        // Sleep-gate MOSFET is off: the rail (and the sensor) has no power,
+        // so this sample cannot be trusted regardless of its value.
+        return false;
+    }
+    if (mv >= MQ135_RAIL_FLOAT_MV)
+    {
+        // Rail is nominally on but the pin is still pinned near full-scale
+        // (e.g. sampled during the MOSFET's turn-on transient before the
+        // sensor output has settled) - reject it the same way.
+        ESP_LOGW(TAG, "Reading %.0f mV pinned near rail; rejecting as unpowered/floating", mv);
+        return false;
+    }
+    return true;
 }

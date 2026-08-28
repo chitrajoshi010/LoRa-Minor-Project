@@ -39,6 +39,71 @@ static uint8_t g_lastWindow = WIN_SLEEP;
 static uint32_t g_nextBeaconMs = 0;
 static uint32_t g_dataPackets = 0;
 
+// Display-only labels mirroring main/acoustic/classifier.cpp's
+// ACOUSTIC_LABELS. Duplicated (not #included) so the gateway keeps decoding
+// NodePayload without pulling in the classifier/TFLite build (payload.h must
+// stay dependency-free - see AGENTS.md).
+static const char* const GW_ACOUSTIC_LABELS[LDSE_ACOUSTIC_CLASSES] = {
+    "Axe", "Chainsaw", "Gunshot", "Handsaw", "Background",
+};
+
+static const char* MsgTypeName(uint8_t type)
+{
+    switch (type)
+    {
+        case MSG_LAYER_INIT: return "LAYER_INIT";
+        case MSG_SYNC: return "SYNC";
+        case MSG_RREQ: return "RREQ";
+        case MSG_RREP: return "RREP";
+        case MSG_HANDSHAKE: return "HANDSHAKE";
+        case MSG_DATA: return "DATA";
+        case MSG_ACK: return "ACK";
+        case MSG_FIRE_ALERT: return "FIRE_ALERT";
+        default: return "UNKNOWN";
+    }
+}
+
+// Dump every LDSE header field and (if present) the fully decoded
+// NodePayload/hex bytes to the serial console. Called before any Wi-Fi/
+// Firebase handoff so the raw packet is always visible on the monitor even
+// if the network upload is queued, dropped, or Wi-Fi is down.
+static void DumpPacketFull(const LdsePacket& pkt, const NodePayload* np, bool haveNp)
+{
+    printf("---- RX PACKET ----\n");
+    printf("  type=0x%02X (%s) srcId=%u dstId=%u originId=%u hopCount=%u layer=%u\n",
+           pkt.type, MsgTypeName(pkt.type), pkt.srcId, pkt.dstId, pkt.originId,
+           pkt.hopCount, pkt.layer);
+    printf("  timestampUs=%lu seq=%u energyPct=%u%% rssiDbm=%d payloadLen=%u\n",
+           (unsigned long)pkt.timestampUs, pkt.seq, pkt.energyPct, pkt.rssiDbm,
+           pkt.payloadLen);
+
+    printf("  payload (hex):");
+    for (uint8_t i = 0; i < pkt.payloadLen; i++)
+    {
+        printf(" %02X", pkt.payload[i]);
+    }
+    printf("\n");
+
+    if (haveNp && np != nullptr)
+    {
+        const char* label = (np->classIdx < LDSE_ACOUSTIC_CLASSES)
+                                 ? GW_ACOUSTIC_LABELS[np->classIdx]
+                                 : "?";
+        printf("  payload (decoded NodePayload):\n");
+        printf("    classIdx=%u (%s) confidence=[%.3f, %.3f, %.3f, %.3f, %.3f]\n",
+               np->classIdx, label, np->confidence[0], np->confidence[1],
+               np->confidence[2], np->confidence[3], np->confidence[4]);
+        printf("    temperature=%.2f C  humidity=%.2f %%  gas=%.1f mV  fireScore=%.3f\n",
+               np->temperature, np->humidity, np->gas, np->fireScore);
+    }
+    else
+    {
+        printf("  payload: not a NodePayload (len %u != %u expected)\n",
+               pkt.payloadLen, (unsigned)sizeof(NodePayload));
+    }
+    printf("--------------------\n");
+}
+
 static void BroadcastLayerInit()
 {
     LdsePacket pkt;
@@ -85,6 +150,11 @@ static void LogPacket(const LdsePacket& pkt, uint32_t nowMs)
     {
         memcpy(&np, pkt.payload, sizeof(NodePayload));
     }
+
+    // Full raw + decoded packet dump, shown on the monitor before any
+    // CSV/Wi-Fi/Firebase handoff below.
+    DumpPacketFull(pkt, &np, haveNp);
+
     // CSV: kind,epoch_ms,origin,src,hops,seq,rssi,layer,class,temp,hum,gas,fire,count
     const char* kind = (pkt.type == MSG_FIRE_ALERT) ? "FIRE" : "DATA";
     printf("%s,%lu,%u,%u,%u,%u,%d,%u,%d,%.2f,%.2f,%.1f,%.3f,%lu\n",

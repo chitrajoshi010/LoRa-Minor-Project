@@ -158,10 +158,12 @@ static void RelayAlertCheck()
 {
     AcousticResult ar;
     bool haveAc = classifier_get_latest(&ar);
+    bool railAwake = g_sleepGate.IsAwake();
     float temp = 0.0f, hum = 0.0f;
-    dht22_read(&temp, &hum);
-    float gas = mq135_read_mv();
-    float score = fire_score_compute(gas, temp, hum);
+    bool envValid = railAwake && dht22_read(&temp, &hum);
+    float gas = 0.0f;
+    bool gasValid = railAwake && mq135_read(railAwake, &gas);
+    float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
 
     bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
@@ -180,9 +182,9 @@ static void RelayAlertCheck()
     {
         np.classIdx = (uint8_t)(LDSE_ACOUSTIC_CLASSES - 1); // Background
     }
-    np.temperature = temp;
-    np.humidity = hum;
-    np.gas = gas;
+    np.temperature = envValid ? temp : 0.0f;
+    np.humidity = envValid ? hum : 0.0f;
+    np.gas = gasValid ? gas : 0.0f; // 0 = "no valid reading this epoch"
     np.fireScore = score;
 
     LdsePacket pkt;
@@ -199,8 +201,10 @@ static void RelayAlertCheck()
     g_radio.SetChannel(LDSE_FREQ_PUC_MHZ, g_forwarder.GetDataSpreadingFactor());
     g_radio.Standby();
     g_forwarder.TryTransmit(g_radio, pkt, LDSE_GATEWAY_ID);
-    printf("[REL] %s alert score=%.3f temp=%.1f gas=%.0f class=%s\n",
-           fire ? "FIRE" : "ACOUSTIC", score, temp, gas, haveAc ? ACOUSTIC_LABELS[np.classIdx] : "n/a");
+    printf("[REL] %s alert score=%.3f temp=%.1f%s gas=%.0f%s class=%s\n",
+           fire ? "FIRE" : "ACOUSTIC", score, envValid ? temp : 0.0f,
+           envValid ? "" : " (n/a)", gasValid ? gas : 0.0f,
+           gasValid ? "" : " (n/a, rail unpowered)", haveAc ? ACOUSTIC_LABELS[np.classIdx] : "n/a");
 }
 
 void ldse_relay_main()
@@ -260,18 +264,21 @@ void ldse_relay_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                classifier_set_mic_powered(true);
                 g_radio.SetChannel(LDSE_FREQ_PUC_MHZ, LDSE_SF_NORMAL);
             }
             else if (win == WIN_DATA)
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                classifier_set_mic_powered(true);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
             else // WIN_SLEEP
             {
                 g_energy.EnterSleep();
                 g_sleepGate.Sleep();
+                classifier_set_mic_powered(false);
                 g_radio.Sleep();
                 printf("[REL] Sleep: energy=%.3f J battery=%.1f mAh\n",
                        g_energy.GetEnergyConsumedJ(), g_energy.GetBatteryMouth());

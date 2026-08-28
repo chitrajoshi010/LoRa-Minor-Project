@@ -45,6 +45,10 @@ static uint8_t tensor_arena[TENSOR_ARENA_SIZE];
 static SemaphoreHandle_t s_lock = nullptr;
 static AcousticResult s_latest = {};
 static bool s_have_result = false;
+// Mic shares the sleep-gate MOSFET rail with the gas/DHT22 sensors (see
+// AGENTS.md power topology). true at boot: LdseSleepGate::Begin() powers the
+// rail on before classifier_start() runs.
+static volatile bool s_mic_powered = true;
 
 static void classifier_task(void* arg)
 {
@@ -105,6 +109,14 @@ static void classifier_task(void* arg)
 
     for (;;)
     {
+        if (!s_mic_powered)
+        {
+            // Sleep-gate MOSFET has the mic rail off: I2S DIN floats rather
+            // than carrying real audio, so skip capture/inference instead of
+            // classifying garbage samples as a possible threat.
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
         if (spectrogram_compute(input_data) != ESP_OK)
         {
             vTaskDelay(pdMS_TO_TICKS(500));
@@ -150,6 +162,19 @@ bool classifier_start(void)
     }
     // 8 KB stack: inference uses the static arena, not the task stack.
     return xTaskCreate(classifier_task, "acoustic", 8192, nullptr, 4, nullptr) == pdPASS;
+}
+
+void classifier_set_mic_powered(bool powered)
+{
+    s_mic_powered = powered;
+    if (!powered && s_lock != nullptr)
+    {
+        // Drop any cached result so a detection from before the rail went
+        // down is never mistaken for a fresh one right after waking up.
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_have_result = false;
+        xSemaphoreGive(s_lock);
+    }
 }
 
 bool classifier_get_latest(AcousticResult* out)

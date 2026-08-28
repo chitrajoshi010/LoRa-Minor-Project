@@ -27,10 +27,10 @@
 #define W_TEMP 0.37f
 #define W_HUM  0.12f
 
-float fire_score_compute(float gas_mv, float temp_c, float humidity)
+float fire_score_compute(bool gas_valid, float gas_mv, bool env_valid, float temp_c, float humidity)
 {
-    float d_gas = (gas_mv - CAL_GAS_MEAN_MV) / CAL_GAS_STD_MV;
-    float d_temp = (temp_c - CAL_TEMP_MEAN_C) / CAL_TEMP_STD_C;
-    float d_hum = (CAL_HUM_MEAN - humidity) / CAL_HUM_STD; // drop raises risk
+    float d_gas = gas_valid ? (gas_mv - CAL_GAS_MEAN_MV) / CAL_GAS_STD_MV : 0.0f;
+    float d_temp = env_valid ? (temp_c - CAL_TEMP_MEAN_C) / CAL_TEMP_STD_C : 0.0f;
+    float d_hum = env_valid ? (CAL_HUM_MEAN - humidity) / CAL_HUM_STD : 0.0f; // drop raises risk
     return W_GAS * d_gas + W_TEMP * d_temp + W_HUM * d_hum;
 }

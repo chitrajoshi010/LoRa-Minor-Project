@@ -121,12 +121,41 @@ and the three-board bench boots (gateway -> relay -> node).
   (`main/ldse/LdseSleepGate.{h,cpp}`). It is driven HIGH during SYNC/DATA and
   LOW during SLEEP, on the parent-synced epoch schedule (see
   `LdseEpoch::GetWindow`) — not gateway; gateway has no MOSFET/sensors.
+- **Power rail topology (relay/node):** battery → 5V reg → 3.3V reg. The
+  MOSFET (`LDSE_PIN_SLEEP_GATE`) gates the 3.3V regulator's input, which in
+  turn feeds the MQ-135 gas sensor, DHT22, and INMP441 mic — so all three are
+  powered off together during SLEEP. The ESP32-S3 and the SX1278 LoRa module
+  are wired directly to power (not through the MOSFET) and stay on always.
 
 ## Sensors (main/sensors/)
 
 - MQ-135 on GPIO2 via esp_adc oneshot (ADC1_CH1); DHT22 on GPIO12 via the
   chmorgan/esp-dht component. `dht22.cpp` is the single adapter point if the
   component API differs.
+- **Gas sensor floating-high when unpowered:** when the sleep-gate MOSFET is
+  off, GPIO2 is not driven by the MQ-135 and floats up to the 3.3V rail
+  through the sensor's load resistor instead of reading 0V. `mq135_read()`
+  (`main/sensors/mq135.{h,cpp}`) takes the caller's `LdseSleepGate::IsAwake()`
+  state and also rejects any reading pinned near the ADC rail
+  (`MQ135_RAIL_FLOAT_MV`), returning `false` instead of a bogus high-CO2
+  value. `fire_score_compute()` (`fire_scoring.{h,cpp}`) takes `gas_valid`
+  and `env_valid` flags and drops the corresponding term(s) (treated as
+  baseline) rather than scoring a floating-rail/unpowered reading as real
+  data. Always route reads through `mq135_read()`/`dht22_read()` — never call
+  the raw ADC directly, and always gate on `LdseSleepGate::IsAwake()` in
+  `roles/{relay,node}.cpp` before trusting them.
+- **DHT22 and mic share the same rail** — DHT22 fails its own ack/timeout
+  check (`dht22_read()` returns `false`) when unpowered, so no extra rail
+  check is strictly needed there, but callers still gate the call on
+  `IsAwake()` for consistency and to skip the wasted ~5 ms bit-bang attempt.
+  The INMP441 mic is different: its background inference task
+  (`main/acoustic/classifier.cpp`) runs continuously and would otherwise keep
+  classifying floating/garbage I2S samples during SLEEP, risking a spurious
+  high-confidence "threat". Call `classifier_set_mic_powered(true/false)` in
+  lockstep with every `LdseSleepGate::Wake()`/`Sleep()` call (see
+  `roles/relay.cpp`, `roles/node.cpp`) — it pauses capture/inference while
+  unpowered and clears any cached result so a stale/garbage detection is
+  never reused after waking.
 - Fire score follows report Eq. 3.4 (weights 0.51/0.37/0.12); `CAL_*` baselines
   in `fire_scoring.cpp` are placeholders needing field calibration.
 

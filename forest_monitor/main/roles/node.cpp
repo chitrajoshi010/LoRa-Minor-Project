@@ -100,10 +100,12 @@ static void SendData()
     // ---- gather payload ----
     AcousticResult ar;
     bool haveAc = classifier_get_latest(&ar);
+    bool railAwake = g_sleepGate.IsAwake();
     float temp = 0.0f, hum = 0.0f;
-    dht22_read(&temp, &hum);
-    float gas = mq135_read_mv();
-    float score = fire_score_compute(gas, temp, hum);
+    bool envValid = railAwake && dht22_read(&temp, &hum);
+    float gas = 0.0f;
+    bool gasValid = railAwake && mq135_read(railAwake, &gas);
+    float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
 
     bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
@@ -125,9 +127,9 @@ static void SendData()
     {
         np.classIdx = (uint8_t)(LDSE_ACOUSTIC_CLASSES - 1); // Background
     }
-    np.temperature = temp;
-    np.humidity = hum;
-    np.gas = gas;
+    np.temperature = envValid ? temp : 0.0f;
+    np.humidity = envValid ? hum : 0.0f;
+    np.gas = gasValid ? gas : 0.0f; // 0 = "no valid reading this epoch"
     np.fireScore = score;
 
     uint8_t parent = g_routing.SelectBestParent();
@@ -179,9 +181,10 @@ static void SendData()
     if (WaitForAck(pkt.seq))
     {
         g_txSuccess++;
-        printf("[NODE] %s seq=%u acked class=%s T=%.1f H=%.1f gas=%.0f fire=%.3f sf=%u\n",
+        printf("[NODE] %s seq=%u acked class=%s T=%.1f%s H=%.1f gas=%.0f%s fire=%.3f sf=%u\n",
                fire ? "FIRE" : "DATA", pkt.seq, ACOUSTIC_LABELS[np.classIdx],
-               temp, hum, gas, score, sf);
+               envValid ? temp : 0.0f, envValid ? "" : " (n/a)", envValid ? hum : 0.0f,
+               gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)", score, sf);
     }
     else
     {
@@ -248,12 +251,14 @@ void ldse_node_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                classifier_set_mic_powered(true);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
             else if (win == WIN_DATA)
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                classifier_set_mic_powered(true);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
                 delay(LDSE_NODE_TX_OFFSET_MS);
                 SendData();
@@ -262,6 +267,7 @@ void ldse_node_main()
             {
                 g_energy.EnterSleep();
                 g_sleepGate.Sleep();
+                classifier_set_mic_powered(false);
                 g_radio.Sleep();
                 printf("[NODE] Sleep: energy=%.3f J battery=%.1f mAh txOK=%lu txFail=%lu\n",
                        g_energy.GetEnergyConsumedJ(), g_energy.GetBatteryMouth(),

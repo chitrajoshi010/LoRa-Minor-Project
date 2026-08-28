@@ -40,6 +40,19 @@ extern const char* const ACOUSTIC_LABELS[ACOUSTIC_NUM_CLASSES];
 /** Initialise mic + model and start the inference task. @return true on success. */
 bool classifier_start(void);
 
+/**
+ * Notify the classifier task that the mic's power rail changed state. The
+ * INMP441 mic shares the sleep-gate MOSFET rail with the MQ-135/DHT22 (see
+ * AGENTS.md power topology), so call this from the same place the node/relay
+ * calls LdseSleepGate::Wake()/Sleep() (true on Wake, false on Sleep). While
+ * powered==false the task skips capture/inference (I2S DIN floats when
+ * unpowered, which would otherwise feed garbage samples into the model and
+ * could produce a spurious high-confidence "threat") and any stale result is
+ * cleared so classifier_get_latest() returns false until a fresh, real
+ * capture completes after the rail is re-powered.
+ */
+void classifier_set_mic_powered(bool powered);
+
 /** Copy the most recent inference result. @return false if none yet. */
 bool classifier_get_latest(AcousticResult* out);
 
