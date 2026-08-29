@@ -141,6 +141,12 @@ static esp_err_t DoHttpRequest(const char* url, esp_http_client_method_t method,
     cfg.event_handler = HttpEventHandler;
     cfg.timeout_ms = 8000;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    // The Firebase idToken (~950 chars) rides in the URL's ?auth= query
+    // param, so the request line alone can exceed esp_http_client's default
+    // ~512-byte TX buffer ("Out of buffer" error). Size both buffers to
+    // comfortably fit the longest URL we build (see url[] in callers).
+    cfg.buffer_size = sizeof(s_idToken) + 256;
+    cfg.buffer_size_tx = sizeof(s_idToken) + 256;
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client)
@@ -219,8 +225,15 @@ static void PushMetaOnce(const char* nodeKey, const char* role, int layer, int s
     {
         return;
     }
-    char url[256];
-    snprintf(url, sizeof(url), "%s/nodes/%s/meta.json?auth=%s", CONFIG_FIREBASE_DB_URL, nodeKey, token);
+    // sizeof(s_idToken) covers the idToken itself (Identity Toolkit tokens
+    // run ~900-1000 chars); the rest is headroom for the DB URL + path.
+    char url[sizeof(s_idToken) + 192];
+    int urlLen = snprintf(url, sizeof(url), "%s/nodes/%s/meta.json?auth=%s", CONFIG_FIREBASE_DB_URL, nodeKey, token);
+    if (urlLen < 0 || urlLen >= (int)sizeof(url))
+    {
+        ESP_LOGW(TAG, "meta URL truncated, skipping upload");
+        return;
+    }
     char body[128];
     snprintf(body, sizeof(body), "{\"label\":\"%s\",\"role\":\"%s\",\"layer\":%d}", nodeKey, role, layer);
     int status = 0;
@@ -261,11 +274,21 @@ static void PushItem(const FirebaseUploadItem& item)
         return;
     }
 
-    char url[256];
+    // sizeof(s_idToken) covers the idToken itself (Identity Toolkit tokens
+    // run ~900-1000 chars); the rest is headroom for the DB URL + path. A
+    // smaller fixed buffer here silently truncated the auth token, which
+    // Firebase then rejected as "Permission denied" even with correct rules.
+    char url[sizeof(s_idToken) + 192];
     int status = 0;
 
     // /nodes/{key}/latest - overwritten every cycle.
-    snprintf(url, sizeof(url), "%s/nodes/%s/latest.json?auth=%s", CONFIG_FIREBASE_DB_URL, item.nodeKey, token);
+    int urlLen = snprintf(url, sizeof(url), "%s/nodes/%s/latest.json?auth=%s", CONFIG_FIREBASE_DB_URL, item.nodeKey,
+                           token);
+    if (urlLen < 0 || urlLen >= (int)sizeof(url))
+    {
+        ESP_LOGW(TAG, "latest URL truncated, skipping upload");
+        return;
+    }
     esp_err_t err = DoHttpRequest(url, HTTP_METHOD_PUT, body, &status);
     if (err == ESP_OK && status == 401)
     {
@@ -274,8 +297,13 @@ static void PushItem(const FirebaseUploadItem& item)
         token = GetIdToken(true);
         if (token)
         {
-            snprintf(url, sizeof(url), "%s/nodes/%s/latest.json?auth=%s", CONFIG_FIREBASE_DB_URL, item.nodeKey,
-                      token);
+            urlLen = snprintf(url, sizeof(url), "%s/nodes/%s/latest.json?auth=%s", CONFIG_FIREBASE_DB_URL,
+                               item.nodeKey, token);
+            if (urlLen < 0 || urlLen >= (int)sizeof(url))
+            {
+                ESP_LOGW(TAG, "latest URL truncated on retry, skipping upload");
+                return;
+            }
             err = DoHttpRequest(url, HTTP_METHOD_PUT, body, &status);
         }
     }
@@ -285,7 +313,13 @@ static void PushItem(const FirebaseUploadItem& item)
     }
 
     // /nodes/{key}/history - append-only.
-    snprintf(url, sizeof(url), "%s/nodes/%s/history.json?auth=%s", CONFIG_FIREBASE_DB_URL, item.nodeKey, token);
+    urlLen = snprintf(url, sizeof(url), "%s/nodes/%s/history.json?auth=%s", CONFIG_FIREBASE_DB_URL, item.nodeKey,
+                       token);
+    if (urlLen < 0 || urlLen >= (int)sizeof(url))
+    {
+        ESP_LOGW(TAG, "history URL truncated, skipping upload");
+        return;
+    }
     err = DoHttpRequest(url, HTTP_METHOD_POST, body, &status);
     if (err != ESP_OK || status != 200)
     {

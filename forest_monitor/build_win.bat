@@ -36,7 +36,7 @@ if not "%IDF_PYTHON_ENV_PATH%"=="" (
 )
 
 set TARGET=esp32
-set ROLE_OPTS=
+set ROLE=0
 
 if /i "%~1"=="node" goto set_node
 if /i "%~1"=="relay" goto set_relay
@@ -46,15 +46,17 @@ goto usage
 
 :set_node
 set TARGET=esp32s3
+set ROLE=2
 goto run
 
 :set_relay
 set TARGET=esp32s3
-set ROLE_OPTS=-D CONFIG_LDSE_ROLE=1
+set ROLE=1
 goto run
 
 :set_gateway
 set TARGET=esp32
+set ROLE=0
 goto run
 
 :usage
@@ -66,11 +68,42 @@ exit /b 1
 
 :run
 echo ============================================
-echo Target: %TARGET%   Role options: %ROLE_OPTS%
+echo Target: %TARGET%   Role: %ROLE%
 echo ============================================
+
+rem "idf.py -D CONFIG_LDSE_ROLE=N build/set-target" does NOT reliably
+rem override the role: ESP-IDF applies the top-level sdkconfig.defaults.
+rem <target> file (which pins CONFIG_LDSE_ROLE=0 for esp32 / 2 for
+rem esp32s3) as a base layer, then layers SDKCONFIG_DEFAULTS
+rem (sdkconfig.defaults + sdkconfig.defaults.local) on top of it, and
+rem -D command-line overrides lose to that merge. Concretely: relay
+rem (esp32s3, role 1) diverges from the esp32s3 target default (role 2,
+rem the same as node), so "build_win.bat relay" after a "node" build
+rem previously produced a NODE binary with no error - this is what
+rem silently got flashed to the relay board. Also, once sdkconfig
+rem exists on disk with a role saved in it, that persisted value wins
+rem over everything on the next configure too.
+rem
+rem Fix: force the intended role via a managed line in
+rem sdkconfig.defaults.local (already part of SDKCONFIG_DEFAULTS and
+rem git-ignored - see that file's header), which DOES win over
+rem sdkconfig.defaults.<target>, and always delete the generated
+rem sdkconfig first so the merge is re-applied instead of reusing a
+rem stale persisted value.
+set "LOCAL_DEFAULTS=%~dp0sdkconfig.defaults.local"
+powershell -NoProfile -Command ^
+    "$p = '%LOCAL_DEFAULTS%';" ^
+    "$lines = if (Test-Path $p) { Get-Content $p | Where-Object { $_ -notmatch '^CONFIG_LDSE_ROLE=' } } else { @() };" ^
+    "$lines + \"CONFIG_LDSE_ROLE=%ROLE%\" | Set-Content -Encoding utf8 $p"
+if errorlevel 1 (
+    echo ERROR: Failed to write CONFIG_LDSE_ROLE=%ROLE% into sdkconfig.defaults.local
+    exit /b 1
+)
+
+if exist "%~dp0sdkconfig" del /f /q "%~dp0sdkconfig"
 
 "%IDF_PY_PYTHON%" "%IDF_PATH%\tools\idf.py" set-target %TARGET%
 if errorlevel 1 exit /b 1
 
-"%IDF_PY_PYTHON%" "%IDF_PATH%\tools\idf.py" build %ROLE_OPTS%
+"%IDF_PY_PYTHON%" "%IDF_PATH%\tools\idf.py" build
 exit /b %errorlevel%
