@@ -90,6 +90,8 @@ static void classifier_task(void* arg)
     TfLiteTensor* output = interpreter.output(0);
     ESP_LOGI(TAG, "Arena used: %u / %u bytes",
              (unsigned)interpreter.arena_used_bytes(), (unsigned)TENSOR_ARENA_SIZE);
+    ESP_LOGI(TAG, "Input quant: scale=%f zero_point=%d",
+             input->params.scale, (int)input->params.zero_point);
 
     if (audio_init() != ESP_OK)
     {
@@ -117,7 +119,7 @@ static void classifier_task(void* arg)
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
-        if (spectrogram_compute(input_data) != ESP_OK)
+        if (spectrogram_compute(input_data, input->params.scale, input->params.zero_point) != ESP_OK)
         {
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;

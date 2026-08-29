@@ -29,9 +29,6 @@
 
 static const char *TAG = "spectrogram";
 
-#define INPUT_SCALE       0.053753f
-#define INPUT_ZERO_POINT  17
-
 // Scale factor for int16 log-mel storage: dB values (-80..0) × 100 → fit int16
 #define LOG_MEL_SCALE     100
 
@@ -128,8 +125,14 @@ static void process_frame(int frame_idx, int ring_read_pos)
  * Streaming: reads HOP_LENGTH samples at a time from I2S.
  * Pre-reads N_FFT/2 samples to implement librosa center=True padding.
  * ─────────────────────────────────────────────────────────────────────────── */
-esp_err_t spectrogram_compute(int8_t *out_tensor)
+esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t input_zero_point)
 {
+    // input_scale/input_zero_point must come from the currently embedded
+    // model's actual input tensor quantization params (see classifier.cpp) --
+    // hardcoding these silently corrupts every input sample whenever the
+    // embedded model's quantization differs, which pins the classifier to a
+    // single class (observed as always predicting "Background") regardless
+    // of the real audio.
     // Temp buffer for one hop of int32 I2S samples (on heap to avoid stack overflow)
     int32_t hop_raw[HOP_LENGTH];
 
@@ -247,7 +250,7 @@ esp_err_t spectrogram_compute(int8_t *out_tensor)
     for (int i = 0; i < total; i++) {
         float db         = (float)s_logmel_buf[i] / 10.0f;
         float normalized = (db - mean) / std_dev;
-        float q_f        = normalized / INPUT_SCALE + (float)INPUT_ZERO_POINT;
+        float q_f        = normalized / input_scale + (float)input_zero_point;
         int   q          = (int)roundf(q_f);
         if (q < -128) q = -128;
         if (q >  127) q =  127;

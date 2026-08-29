@@ -167,6 +167,17 @@ static void RelayAlertCheck()
 
     bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
+
+    // Bench-test visibility: log the raw sensor readings every DATA epoch,
+    // regardless of whether they're alert-worthy (no radio TX happens below
+    // for a no-alert epoch, so this is the only place these values surface).
+    printf("[REL] sensors T=%.1f%s H=%.1f%s gas=%.0f%s class=%s(%.2f) fire_score=%.3f\n",
+           envValid ? temp : 0.0f, envValid ? "" : " (n/a)",
+           envValid ? hum : 0.0f, envValid ? "" : " (n/a)",
+           gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)",
+           haveAc ? ACOUSTIC_LABELS[ar.classIdx] : "n/a",
+           haveAc ? ar.confidence[ar.classIdx] : 0.0f, score);
+
     if (!fire && !acousticAlert)
     {
         return;
