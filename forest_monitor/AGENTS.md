@@ -1,7 +1,7 @@
 # AGENTS.md — Forest Monitor (unified ESP-IDF firmware)
 
 Guidance for AI coding agents (Claude Code, Copilot, etc.) working in
-`esp/forest_monitor/`. This is the merged firmware combining the LDSE LoRa
+`LoRa-Minor-Project/forest_monitor/`. This is the merged firmware combining the LDSE LoRa
 protocol and the acoustic classifier into one ESP-IDF project with a build-time
 role (`CONFIG_LDSE_ROLE`: 0=gateway, 1=relay, 2=node).
 
@@ -38,7 +38,8 @@ and the three-board bench boots (gateway -> relay -> node).
    breaks RadioLib's std::min. Use `ldse_min_u8` / `ldse_clampf`.
 - Keep the packet format (`LdsePacket.h`), message types, epoch timing, FTSP
    sync, IRE routing and congestion logic **byte-identical** to the original.
-- Radio uses RadioLib's built-in ESP-IDF EspHal (SPI2_HOST):
+- Radio uses this repo's ESP-IDF `EspHal` implementation
+   (`main/ldse/EspHal.{h,cpp}`) on top of SPI2_HOST:
    `new EspHal(SCK, MISO, MOSI)` then `new Module(hal, NSS, DIO0, RST, DIO1)`.
    The Module must be heap-allocated (RadioLib keeps the pointer).
 
@@ -55,8 +56,7 @@ and the three-board bench boots (gateway -> relay -> node).
 ## Sensors (main/sensors/)
 
 - MQ-135 on GPIO2 via esp_adc oneshot (ADC1_CH1); DHT22 on GPIO12 via the
-   chmorgan/esp-dht component. `dht22.cpp` is the single adapter point if the
-   component API differs.
+   project-authored bit-banged driver in `main/sensors/dht22.cpp`.
 - Fire score follows report Eq. 3.4 (weights 0.51/0.37/0.12); CAL_* baselines
    in `fire_scoring.cpp` are placeholders needing field calibration.
 

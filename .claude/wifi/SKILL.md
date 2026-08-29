@@ -49,9 +49,11 @@ decoupled from the LDSE loop.
 |---|---|
 | `main/net/wifi_manager.h` | New. Public API: `wifi_manager_init()`, `wifi_manager_is_connected()`. |
 | `main/net/wifi_manager.cpp` | New. STA mode, event-driven connect/reconnect, backoff. |
+| `main/net/firebase_uploader.h` | Queue-based gateway upload API for best-effort Firebase RTDB delivery. |
+| `main/net/firebase_uploader.cpp` | Background auth + RTDB push task, gated on Wi-Fi connectivity. |
 | `main/Kconfig.projbuild` | Add `CONFIG_GATEWAY_WIFI_SSID` / `CONFIG_GATEWAY_WIFI_PASSWORD`, scoped `depends on LDSE_ROLE = 0`. |
-| `main/CMakeLists.txt` | Add `net/wifi_manager.cpp` to gateway's `SRCS`; add `esp_wifi`, `esp_netif`, `esp_event` to gateway's `REQUIRES` (role 0 row in the role→module matrix). |
-| `main/roles/gateway.cpp` | Call `wifi_manager_init()` once, at the top of `ldse_gateway_main()`, before the LDSE init/loop. |
+| `main/CMakeLists.txt` | Add gateway networking sources/deps (`net/wifi_manager.cpp`, `net/firebase_uploader.cpp`, `esp_wifi`, `esp_netif`, `esp_event`, `esp_http_client`, `esp-tls`, `json`, etc.). |
+| `main/roles/gateway.cpp` | Call `wifi_manager_init()` once, then `firebase_uploader_init()`, before the LDSE init/loop. |
 
 Do not add these deps to the relay or node `REQUIRES` — role-based source
 selection in `CMakeLists.txt` (`ARCHITECTURE.md` §5.1) exists specifically
@@ -77,16 +79,15 @@ to keep non-gateway images lean; don't undo that.
 7. Pull the hotspot out of range mid-run and confirm reconnect-with-backoff
    in the logs, and that CSV/DATA|FIRE logging over serial never stops.
 
-## Known follow-on work (not yet implemented)
+## Current follow-on work
 
-Pushing the gateway's decoded `DATA|FIRE` CSV rows to Firebase Realtime
-Database requires a REST client over `esp_http_client` — the Arduino
-`Firebase_ESP_Client` library used in the legacy `ESP32/` sketch does not
-build under ESP-IDF/CMake, so it cannot be reused here. That upload leg
-(auth token handling, `/nodes/{id}/latest` + `/nodes/{id}/history` writes
-per the schema in `README.md`) is a separate task — gate it on
-`wifi_manager_is_connected()` and keep it out of the LDSE-timing-critical
-path the same way this skill keeps Wi-Fi connect itself out of it.
+The Firebase upload leg is now implemented in `main/net/firebase_uploader.{h,cpp}`
+using `esp_http_client`, Identity Toolkit email/password auth, and RTDB writes
+to `/nodes/{id}/latest` plus `/nodes/{id}/history`. Future gateway networking
+changes should preserve the same constraint: all HTTP work stays on the
+background upload task, every upload remains gated on
+`wifi_manager_is_connected()`, and the LDSE timing-critical loop never blocks
+on network activity.
 
 ## Gotchas carried over from `AGENTS.md` / `ARCHITECTURE.md` §6
 

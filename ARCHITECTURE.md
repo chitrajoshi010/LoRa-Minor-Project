@@ -3,7 +3,7 @@
 A complete map of the codebase: what each file does, how the layers fit together, and the data/control flow at runtime.
 
 > **Project:** Scalable Multi-hop LoRa Networks for Intelligent Forest Monitoring
-> **Stack:** ESP-IDF v5.2.x · C++17 · FreeRTOS · TensorFlow Lite Micro · RadioLib (SX1278)
+> **Stack:** ESP-IDF v5.x · C++17 · FreeRTOS · TensorFlow Lite Micro · RadioLib (SX1278)
 > **Targets:** ESP32-WROOM-32 (gateway) · ESP32-S3 (relay + node)
 
 ---
@@ -16,8 +16,9 @@ Minor_Project/
 ├── ARCHITECTURE.md                        # this file
 ├── Minor_project_Mid_term_diffence.md     # mid-term academic report (deliverable)
 │
-├── Minor_Project/
-│   └── esp-idf/                           # vendored ESP-IDF v5.2.x source clone (toolchain)
+├── FLASHING.md                            # verified build/flash notes, Wi-Fi/Firebase status
+├── docs/                                  # supplementary project-authored notes
+├── models/                                # standalone model artifact copy
 │
 ├── forest_monitor/                        # canonical unified firmware (build with ESP-IDF)
 │   ├── CMakeLists.txt
@@ -122,7 +123,7 @@ Implements: **I2S capture → framing → Hann window → FFT → mel filterbank
 | File | Lines | Purpose |
 |---|---|---|
 | `mq135.h/.cpp` | 25 + 88 | MQ-135 gas/CO₂ sensor on GPIO2 via `esp_adc_oneshot` (ADC1_CH1). Returns mV. |
-| `dht22.h/.cpp` | 28 + 37 | DHT22 on GPIO12 via `chmorgan/esp-dht` component. Returns °C and %RH. |
+| `dht22.h/.cpp` | 28 + 37 | Project-authored bit-banged DHT22 (AM2302) driver on GPIO12. Returns °C and %RH without a managed component dependency. |
 | `fire_scoring.h/.cpp` | 29 + 36 | Composite fire-risk score per report Eq. 3.4: `0.51·ΔCO₂ + 0.37·ΔT + 0.12·ΔH`, threshold `3.0`. `CAL_*` baselines are placeholder calibration constants. |
 
 ### 2.6 `main/roles/` — three role entry points
@@ -131,9 +132,9 @@ Each file defines a single `ldse_{gateway,relay,node}_main()` function. The role
 
 | File | Lines | Role | What it does |
 |---|---|---|---|
-| `gateway.cpp` | 152 | 0 (ESP32-WROOM-32) | Holds the LDSE root. Broadcasts SYNC every 250 ms during the SYNC window. Logs every received DATA/FIRE packet as CSV: `DATA\|FIRE,epoch_ms,origin,src,hops,seq,rssi,layer,class,temp,hum,gas,fire,count`. |
-| `relay.cpp` | 292 | 1 (ESP32-S3) | Picks parent via IRE; sleeps most of the epoch. Listens on Prc1 for 2.5 s during DATA window, then forwards on Puc. Reads its own MQ-135 + DHT22 each epoch and reports fire score. |
-| `node.cpp` | 272 | 2 (ESP32-S3) | Same as relay **plus** the classifier task. Sends `MSG_FIRE_ALERT` if `fireScore ≥ 3.0`; sends `MSG_DATA` on acoustic threat (confidence ≥ 0.85); bypasses directly to gateway on Puc if relay is congested (`ShouldBypassToGateway()`). |
+| `gateway.cpp` | 152 | 0 (ESP32-WROOM-32) | Holds the LDSE root. Broadcasts SYNC every 250 ms during the SYNC window. Logs every received DATA/FIRE packet as CSV: `DATA\|FIRE,epoch_ms,origin,src,hops,seq,rssi,layer,class,temp,hum,gas,fire,count`, and enqueues decodable packets for optional Firebase RTDB upload over Wi-Fi. |
+| `relay.cpp` | 292 | 1 (ESP32-S3) | Picks parent via IRE; sleeps most of the epoch. Listens on Prc1 for 2.5 s during DATA window, then forwards on Puc. Reads its own MQ-135 + DHT22 each epoch and can originate local fire **or acoustic** alerts. |
+| `node.cpp` | 272 | 2 (ESP32-S3) | Same as relay **plus** the classifier task. Sends `MSG_FIRE_ALERT` if `fireScore ≥ 3.0`; sends `MSG_DATA` on acoustic threat (confidence ≥ 0.70); bypasses directly to gateway on Puc if relay is congested (`ShouldBypassToGateway()`). |
 
 ---
 
@@ -147,9 +148,9 @@ The original standalone `forest_acoustic_classifier/` (ESP-IDF) and `ldse-esp32/
 
 ---
 
-## 4. Vendored toolchain
+## 4. ESP-IDF toolchain expectations
 
-- **`Minor_Project/esp-idf/`** — full ESP-IDF v5.2.x source clone at the repo root (`~/.esp/esp-idf`-style layout). `idf.py set-target … && idf.py build` runs against this checkout. The unified firmware documents the path; the standard install path `~/esp/esp-idf` is also accepted.
+- The repository does **not** include a vendored ESP-IDF checkout. Build using a local ESP-IDF v5.x installation (`idf.py` in your shell environment) or the Windows helper `forest_monitor/build_win.bat`, which points at a local `C:\Espressif\frameworks\esp-idf-v5.5.5` install by default.
 
 ---
 
@@ -206,7 +207,7 @@ The role choice also drives `main/CMakeLists.txt`:
 │                                             │
 │   decision:                                 │
 │     fireScore ≥ 3.0     → MSG_FIRE_ALERT    │
-│     conf ≥ 0.85         → MSG_DATA          │
+│     conf ≥ 0.70         → MSG_DATA          │
 │     else                → sleep until epoch │
 └────────────┬────────────────────────────────┘
              │ NodePayload (37 B)
@@ -224,9 +225,9 @@ The role choice also drives `main/CMakeLists.txt`:
         ┌─────────┐
         │ gateway │   layer 0, ESP32-WROOM-32
         └────┬────┘
-             │ CSV log: DATA|FIRE,epoch_ms,origin,src,hops,seq,rssi,layer,class,temp,hum,gas,fire,count
+             │ CSV log + optional Firebase RTDB upload over Wi-Fi
              ▼
-       web dashboard (out of scope)
+       dashboard / downstream consumer
 ```
 
 ### 5.3 LDSE epoch timeline (10 s cycle)
@@ -287,12 +288,12 @@ The gateway decodes this struct **without compiling sensors or classifier**, kee
 
 | Layer | Component | Source |
 |---|---|---|
-| Framework | ESP-IDF v5.2.x | vendored at `Minor_Project/esp-idf/` |
+| Framework | ESP-IDF v5.x | local installation (`idf.py`) or `build_win.bat` wrapper |
 | Build | CMake + Ninja | bundled with ESP-IDF |
 | ML | `espressif/esp-tflite-micro` | managed component |
 | DSP | `espressif/esp-dsp` | managed component (FFT) |
 | Radio | `RadioLib` (jgromes) | managed component (SX1278 driver) |
-| DHT | `chmorgan/esp-dht` | managed component |
+| DHT | project-authored `main/sensors/dht22.cpp` | bit-banged driver |
 | Build wrapper | `build_win.bat` | Windows shortcut |
 
 ---

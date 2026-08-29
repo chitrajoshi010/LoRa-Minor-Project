@@ -18,7 +18,7 @@ detection**. Three physical roles are compiled from **one image** selected by
 
 | Role | Board | Inputs | Outputs |
 |---|---|---|---|
-| Gateway | ESP32‑WROOM‑32 | LoRa (DATA/FIRE) | CSV over serial |
+| Gateway | ESP32‑WROOM‑32 | LoRa (DATA/FIRE) | CSV over serial (current code also includes a best-effort Wi‑Fi/Firebase upload path) |
 | Relay | ESP32‑S3 | LoRa + MQ‑135 + DHT22 | Forwarded LoRa + local FIRE alert |
 | Node | ESP32‑S3 | LoRa + INMP441 mic + MQ‑135 + DHT22 | LoRa DATA/FIRE |
 

@@ -11,9 +11,10 @@ build-time role (`CONFIG_LDSE_ROLE`: 0=gateway, 1=relay, 2=node).
 
 ## Project summary
 
-ESP-IDF v5.2 firmware for **Scalable Multi-hop LoRa Networks for Intelligent
+ESP-IDF v5.x firmware for **Scalable Multi-hop LoRa Networks for Intelligent
 Forest Monitoring**. One unified codebase compiles into one of three roles
-(`CONFIG_LDSE_ROLE`): **gateway** (ESP32-WROOM-32, mains sink + CSV log),
+(`CONFIG_LDSE_ROLE`): **gateway** (ESP32-WROOM-32, mains sink + CSV log +
+Wi-Fi/Firebase upload path),
 **relay** (ESP32-S3, LoRa forwarder + fire scoring + acoustic classifier),
 **node** (ESP32-S3, on-device TinyML acoustic classifier + sensors). LDSE
 (Layered Dynamic Synchronization Energy-saving) is a custom multi-hop LoRa
@@ -37,9 +38,9 @@ Canonical firmware lives in `forest_monitor/`. Mid-term academic report is
 ```
 INMP441 I2S -> audio_capture (DMA) -> spectrogram (FFT/mel/log/quant)
   -> classifier (TFLite Micro)
-  -> node.cpp decision (fireScore >= 3.0 => MSG_FIRE_ALERT, conf >= 0.85 => MSG_DATA)
+  -> node.cpp decision (fireScore >= 3.0 => MSG_FIRE_ALERT, conf >= 0.70 => MSG_DATA)
   -> LdseForwarder (Prc1 433.5 MHz -> Puc 433.3 MHz; bypasses to gateway if relay congested)
-  -> relay -> gateway -> CSV log
+  -> relay -> gateway -> CSV log / optional Firebase upload
 ```
 
 ## Build / test commands
@@ -102,7 +103,8 @@ and the three-board bench boots (gateway -> relay -> node).
   it breaks RadioLib's `std::min`. Use `ldse_min_u8` / `ldse_clampf`.
 - Keep the packet format (`LdsePacket.h`), message types, epoch timing, FTSP
   sync, IRE routing and congestion logic **byte-identical** to the original.
-- Radio uses RadioLib's built-in ESP-IDF `EspHal` (SPI2_HOST):
+- Radio uses this repo's ESP-IDF `EspHal` implementation
+  (`main/ldse/EspHal.{h,cpp}`) on top of `SPI2_HOST`:
   `new EspHal(SCK, MISO, MOSI)` then `new Module(hal, NSS, DIO0, RST, DIO1)`.
   The `Module` must be heap-allocated (RadioLib keeps the pointer).
 - LDSE epoch (10 s): `SYNC` 0–2 s (gateway broadcasts `MSG_SYNC` every 250 ms) ·
@@ -130,8 +132,7 @@ and the three-board bench boots (gateway -> relay -> node).
 ## Sensors (main/sensors/)
 
 - MQ-135 on GPIO2 via esp_adc oneshot (ADC1_CH1); DHT22 on GPIO12 via the
-  chmorgan/esp-dht component. `dht22.cpp` is the single adapter point if the
-  component API differs.
+  project-authored bit-banged AM2302/DHT22 driver in `main/sensors/dht22.cpp`.
 - **Gas sensor floating-high when unpowered:** when the sleep-gate MOSFET is
   off, GPIO2 is not driven by the MQ-135 and floats up to the 3.3V rail
   through the sensor's load resistor instead of reading 0V. `mq135_read()`
@@ -184,9 +185,9 @@ and the three-board bench boots (gateway -> relay -> node).
   placeholders — recalibrate per site (record stable readings + spread).
 - Acoustic model: 5 classes (tree_falling was dropped vs. the 7-class mid-term
   report design) — reconcile in the report or retrain.
-- ESP-IDF version: vendored clone is v5.2.x. The Windows wrapper
-  (`build_win.bat`) points at `C:\Espressif\frameworks\esp-idf-v5.5.5` — adjust
-  if your install path differs.
+- ESP-IDF version: source is written for ESP-IDF v5.x. The Windows wrapper
+  (`build_win.bat`) currently points at `C:\Espressif\frameworks\esp-idf-v5.5.5`
+  — adjust if your local install lives elsewhere.
 
 ## MCP Tools: code-review-graph
 

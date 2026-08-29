@@ -1,6 +1,6 @@
 # Scalable Multi-hop LoRa Networks for Intelligent Forest Monitoring
 
-A low-cost, energy-efficient wireless sensor network for remote forest monitoring. Two ESP32-S3 sensor nodes run **on-device TinyML acoustic classification** (chainsaw, axe, handsaw, gunshot, background) and **multi-sensor fire-risk scoring** (MQ-135 + DHT22), then forward alerts over a **multi-hop LoRa mesh** using the **LDSE** protocol to a gateway, which publishes them to a web dashboard.
+A low-cost, energy-efficient wireless sensor network for remote forest monitoring. Two ESP32-S3 field devices run **on-device TinyML acoustic classification** (chainsaw, axe, handsaw, gunshot, background) and **multi-sensor fire-risk scoring** (MQ-135 + DHT22), then forward alerts over a **multi-hop LoRa mesh** using the **LDSE** protocol to a gateway, which logs CSV over serial and can forward packets over Wi-Fi to a Firebase-backed dashboard.
 
 **Authors:** Chitra Raj Joshi · Keshar Singh Sunar · Prabesh Parajulee · Santosh Gadtaula
 **Supervisor:** Er. Saroj Shakya, Department of Electronics and Computer Engineering, Thapathali Campus, Tribhuvan University
@@ -13,7 +13,7 @@ A low-cost, energy-efficient wireless sensor network for remote forest monitorin
 | Path | Purpose |
 |---|---|
 | `forest_monitor/` | **Unified ESP-IDF firmware** — single codebase, role selected at build time (`CONFIG_LDSE_ROLE`: 0=gateway, 1=relay, 2=node). Combines the acoustic classifier, sensor stack, and LDSE multi-hop LoRa. |
-| `Minor_Project/esp-idf/` | Vendored Espressif ESP-IDF source clone used to build `forest_monitor/`. `idf.py` runs against this checkout. |
+| `models/model_int8.tflite` | Standalone copy of the acoustic model artifact; the firmware embeds the deployed INT8 model separately in `forest_monitor/main/acoustic/model_data.h`. |
 | `Minor_project_Mid_term_diffence.md` | Mid-term academic report (full deliverable). |
 | `README.md` | This file. |
 
@@ -51,8 +51,8 @@ fire-score calibration notes, see **[`forest_monitor/README.md`](./forest_monito
 
 ## Tools
 
-- **Framework:** ESP-IDF v5.2.x (vendored at `Minor_Project/esp-idf/`)
+- **Framework:** ESP-IDF v5.x project files; the latest documented Windows builds were verified with a local ESP-IDF v5.5.5 install via `forest_monitor/build_win.bat`
 - **ML:** TensorFlow Lite Micro + Edge Impulse-style INT8 quantization
 - **Radio:** SX1278 LoRa, RadioLib
 - **Sensors:** INMP441 (I2S), MQ-135 (ADC), DHT22 (GPIO)
-- **Sensors library:** `chmorgan/esp-dht`
+- **DHT22 driver:** project-authored bit-banged driver in `forest_monitor/main/sensors/dht22.cpp`

@@ -187,7 +187,7 @@ Detecting illegal logging (chainsaws, axes) and poaching (gunshots) via sound ha
 
 Early wildfire detection systems relied on single-threshold triggers from temperature or smoke sensors, which often generated false alarms during normal daily fluctuations. To improve robustness, researchers proposed multi-sensor fusion, combining temperature, humidity, and gas (CO, CO2, smoke) measurements [11]. Methods ranged from simple weighted scoring to fuzzy logic and machine learning (random forests, neural networks) [12]. While effective, most fusion models were designed for single-event detection (fire only) and did not integrate with other threat detection (logging, poaching). Moreover, these systems frequently transmitted raw sensor data continuously, increasing energy consumption. This project bridges this gap by computing a composite fire-risk score using a Random Forest-inspired weighted deviation formula (with coefficients derived from sensor correlation analysis) and transmitting alerts only when the risk exceeds a threshold, thereby reducing communication overhead while maintaining detection accuracy.
 
-The emergence of TinyML running machine learning models on resource-constrained microcontrollers has been enabled by frameworks like TensorFlow Lite Micro and Edge Impulse. These tools support model quantization (e.g., int8), reducing model size and inference latency by ~75% compared to float32, making CNNs feasible on platforms with limited SRAM (e.g., ESP32-S3's 512 KB). Prior work has demonstrated on-device keyword spotting and wildlife audio classification, but few studies have deployed TinyML for simultaneous acoustic threat detection (logging/gunshots) and environmental sensor fusion in a single, low-power node [13]. This project fills this integration gap by using Edge Impulse to train, quantize, and deploy a 7-class acoustic CNN alongside a fire-risk scoring module on the same ESP32-S3, achieving sub-200 ms inference latency and enabling true edge intelligence without cloud connectivity.
+The emergence of TinyML running machine learning models on resource-constrained microcontrollers has been enabled by frameworks like TensorFlow Lite Micro and Edge Impulse. These tools support model quantization (e.g., int8), reducing model size and inference latency by ~75% compared to float32, making CNNs feasible on platforms with limited SRAM (e.g., ESP32-S3's 512 KB). Prior work has demonstrated on-device keyword spotting and wildlife audio classification, but few studies have deployed TinyML for simultaneous acoustic threat detection (logging/gunshots) and environmental sensor fusion in a single, low-power node [13]. The current implementation fills this integration gap by using Edge Impulse-derived assets to deploy a 5-class acoustic CNN alongside a fire-risk scoring module on the same ESP32-S3, achieving sub-200 ms inference latency and enabling true edge intelligence without cloud connectivity.
 
 ### Research Gap
 
@@ -214,12 +214,12 @@ Each forest node is a self-contained sensing and inference unit built around the
 - **Microcontroller:** ESP32-S3, selected for its Xtensa LX7 dual-core processor with vector instruction support for neural network acceleration, ultra-low deep sleep current of approximately 7 µA, and 512 KB SRAM sufficient to hold the quantized TinyML model.
 - **Environmental Sensors:** MQ135 air quality sensor for gas (CO2) concentration detection; DHT22 digital sensor for high-precision temperature (±0.5 °C) and relative humidity (±2-5% RH) measurement.
 - **Acoustic Sensor:** MEMS microphone module (I2S interface) for high-fidelity audio capture at 16 kHz mono, matched to the sample rate used during TinyML model training.
-- **Communication:** SX1278 LoRa transceiver module operating at 435 MHz (or the region-specific ISM band), providing long-range, low-power wireless links with a link budget exceeding 170 dB.
+- **Communication:** SX1278 LoRa transceiver module operating in the 433 MHz ISM band used by the current firmware (433.3/433.5/433.7 MHz channel plan), providing long-range, low-power wireless links for LDSE multi-hop operation.
 - **Power:** A 3.7 V, 2000 mAh Lithium-Polymer (LiPo) battery selected due to its high energy density, rechargeable capability, lightweight design, and suitability for low-power IoT applications.
 
-#### 3.2.2 Gateway (ESP32-S3)
+#### 3.2.2 Gateway (ESP32-WROOM-32)
 
-- **ESP32-S3:** Primary LoRa bridge acting as the LDSE network root node (Layer 0) and time-synchronization coordinator. Receives alert packets from forest nodes and forwards them to the web dashboard over Wi-Fi.
+- **ESP32-WROOM-32:** Primary LoRa bridge acting as the LDSE network root node (Layer 0) and time-synchronization coordinator. Receives alert packets from forest nodes, logs them as structured CSV over serial, and can forward them to Firebase over Wi-Fi for dashboard consumption.
 - **SX1278 LoRa Module:** Receives uplink packets from forest nodes or relay nodes operating under LDSE routing.
 
 ### 3.3 Networking and Communication Protocol (LDSE)
@@ -278,7 +278,7 @@ This represents a transmission energy reduction of approximately **46.8×**. Eve
 
 #### 3.3.3 Protocol-Centric (Focus on LDSE)
 
-This guide outlines how to build and implement a functional two-tier LDSE protocol stack using an ESP32-S3 host microcontroller paired with an SX1262 LoRa transceiver module.
+This guide outlines how to build and implement a functional two-tier LDSE protocol stack using ESP32 host microcontrollers paired with SX1278 LoRa transceiver modules, matching the current firmware implementation.
 
 **Figure 3-4: Sequential Synchronization and Operational Flowchart**
 
@@ -298,19 +298,19 @@ Deploying LDSE in a dense forest environment introduces several engineering chal
 
 The acoustic threat classifier will be trained on a curated subset of the FSC22 (Forest Sound Classification 2022) dataset [10]. The full dataset contains 2,025 five-second audio clips across 27 sub-classes grouped under six broader categories. Each subclass holds 75 samples drawn from the Freesound library and manually verified for quality. The categories cover mechanical sounds (axe, chainsaw, handsaw, generator), animal sounds (birds, wolves, frogs, squirrels, insects), environmental sounds (wind, rain, thunder, river, fire), vehicle sounds (helicopter, motorbike, car), forest threat sounds (gunshot, firework, human screaming), and human sounds (footsteps, speech, whistling).
 
-For this project, FSC22 is narrowed to a **7-class subset** matched to the detection goals: Chainsaw, Axe, Handsaw, Gunshot, Firework, Tree Falling, and a merged Background class combining wind, rain, thunder, river, bird chirping, insects, frogs, squirrels, footsteps, speech, and silence. Firework is kept as a distinct class rather than absorbed into Background. Impulsive sounds that aren't gunshots are a documented source of false alarms in acoustic classifiers, so training the model explicitly on this distinction improves its ability to separate the two. Classes outside the project scope (generator, helicopter, motorbike, car, wood cracking, human screaming, clapping, whistling) are excluded. Before training, all selected clips are resampled from their original 44.1 kHz stereo format to 16 kHz mono, matching the sampling rate of the MEMS microphone on the deployment hardware [14].
+For the currently deployed firmware, FSC22 is narrowed to a **5-class subset** matched to the embedded model: Chainsaw, Axe, Handsaw, Gunshot, and a merged Background class combining wind, rain, thunder, river, bird chirping, insects, frogs, squirrels, footsteps, speech, and silence. Firework and tree-falling remain reasonable future extensions, but they are not present in the model currently embedded in `model_data.h`. Classes outside the implemented scope (generator, helicopter, motorbike, car, wood cracking, human screaming, clapping, whistling) are excluded. Before training, all selected clips are resampled from their original 44.1 kHz stereo format to 16 kHz mono, matching the sampling rate of the MEMS microphone on the deployment hardware [14].
 
 #### 3.4.2 Acoustic Processing and TinyML Model Training
 
 The end-to-end acoustic model development pipeline is implemented using the Edge Impulse platform [14], which provides integrated support for data management, DSP feature extraction, model training, quantization, and ESP32-S3 firmware generation.
 
-**Data Preparation:** The 7-class audio subset uses an 80/20 train-test split on original, unaugmented files. Augmentation is applied only to the training split to prevent test set contamination. Operations include pitch shifting (±2 semitones), time stretching (0.9× and 1.1×), and additive white Gaussian noise injection - expanding each threat class from 75 to roughly 225 training samples and balancing class distribution against the larger merged background class.
+**Data Preparation:** The current 5-class audio subset uses an 80/20 train-test split on original, unaugmented files. Augmentation is applied only to the training split to prevent test set contamination. Operations include pitch shifting (±2 semitones), time stretching (0.9× and 1.1×), and additive white Gaussian noise injection - expanding each threat class from 75 to roughly 225 training samples and balancing class distribution against the larger merged background class.
 
-**Feature Extraction:** Raw 16 kHz audio runs through a DSP block configured with 128 Mel filter banks, 25 ms frame length, and 10 ms frame stride, producing Mel-spectrogram images for classification. The resulting 2D time-frequency representation picks up the harmonic content of chainsaw noise, the sharp transients of gunshots, and the impact profile of axe strikes - all while staying light enough to run inference on-device.
+**Feature Extraction:** In the current firmware, raw 16 kHz audio runs through a DSP block configured with a 512-point FFT, 64 Mel filter banks, and a 160-sample hop length, producing Mel-spectrogram images for classification. The resulting 2D time-frequency representation picks up the harmonic content of chainsaw noise, the sharp transients of gunshots, and the impact profile of axe strikes while staying light enough to run inference on-device.
 
 **Model Architecture:** A compact Convolutional Neural Network (CNN) is trained on the Mel-spectrogram features. The architecture follows a two-stage convolutional block pattern (Conv2D → BatchNorm → ReLU → MaxPool) followed by a fully connected classifier with dropout regularization. The model is trained using categorical cross-entropy loss with the Adam optimizer over 50 epochs.
 
-**Quantization and Deployment:** Following training, the model is quantized to 8-bit integers using Edge Impulse's post-training quantization pipeline. This cuts model size by roughly 75% and inference latency by a similar margin, with minimal accuracy loss. The resulting TensorFlow Lite Micro model and DSP preprocessing code are exported as an Arduino-compatible library and flashed to the ESP32-S3 firmware. Inference only runs when the microphone detects audio energy above a silence threshold, skipping unnecessary wake-ups and preserving battery life.
+**Quantization and Deployment:** Following training, the model is quantized to 8-bit integers using Edge Impulse's post-training quantization pipeline. This cuts model size by roughly 75% and inference latency by a similar margin, with minimal accuracy loss. The resulting TensorFlow Lite Micro model and DSP preprocessing assets are embedded directly into the ESP-IDF firmware (`model_data.h`, `mel_filterbank.h`, `hann_window.h`). Inference runs continuously while the relay/node sensor rail is powered during the LDSE SYNC/DATA windows, and is paused whenever the shared mic/sensor rail is switched off for the SLEEP window.
 
 **Figure 3-5: Acoustic TinyML Processing Pipeline**
 
@@ -345,10 +345,10 @@ Weights (based on correlation with fire):
 
 **Figure 3-6: Proposed System Dataflow**
 
-1. **Sensing Layer:** Forest nodes maintain deep sleep (approximately 7 µA draw). Nodes wake on a scheduled 10-minute timer for environmental sampling, or immediately upon a MEMS microphone interrupt triggered by audio energy above the silence threshold.
-2. **Edge Processing:** The ESP32-S3 wakes, reads MQ135 and DHT22 sensors, and computes the RF fire-risk score. Simultaneously or upon a microphone interrupt, it captures a 5-second audio window, extracts the Mel-spectrogram, and runs the quantized CNN inference. If either the fire-risk score exceeds the safety threshold or the CNN inference confidence exceeds the acoustic detection threshold (default 0.85), the node forms a JSON alert packet containing node ID, GPS coordinates, timestamp, risk score, and detected class label.
-3. **Communication Layer:** The JSON alert packet is transmitted over LoRa. If the node is within direct range of the gateway (< 2 km), the packet is sent directly. If beyond range, the LDSE routing layer forwards the packet through intermediate relay nodes in a multi-hop chain until it reaches the gateway.
-4. **Gateway / Cloud Layer:** The ESP32-S3 gateway receives the alert packet, performs optional secondary validation (duplicate filtering, minimum confidence check), and forwards the structured alert to the web dashboard over Wi-Fi for visualization and notification of forest authorities.
+1. **Sensing Layer:** Relay and node boards follow a synchronized 10-second LDSE epoch consisting of SYNC, DATA, and SLEEP windows. Their ESP32-S3 and LoRa radio remain powered, while a MOSFET gates the shared sensor/microphone rail so the MQ135, DHT22, and INMP441 are powered only during SYNC/DATA.
+2. **Edge Processing:** During the active windows, the ESP32-S3 reads MQ135 and DHT22 sensors, computes the fire-risk score, and runs the quantized CNN on the latest microphone capture. If either the fire-risk score exceeds the safety threshold or the CNN inference confidence on a non-background class exceeds the current acoustic detection threshold (0.70), the node forms a compact 37-byte `NodePayload` binary packet containing class index, per-class confidences, temperature, humidity, gas reading, and fire score.
+3. **Communication Layer:** The alert packet is transmitted over LoRa. The normal path is node to relay on Prc1 (433.5 MHz), followed by relay to gateway on Puc (433.3 MHz). If the relay is congested or unreachable, the node can bypass directly to the gateway on Puc.
+4. **Gateway / Cloud Layer:** The ESP32-WROOM-32 gateway receives the packet, logs the decoded reading as CSV over serial, and—when Wi-Fi plus Firebase credentials are configured—queues a best-effort upload to Firebase Realtime Database for dashboard visualization.
 
 ### 3.6 Overall Working Principle
 
@@ -360,10 +360,10 @@ The network operates in a closed-loop, event-driven manner. Scheduled environmen
 
 By the end of this project, the following outcomes are expected:
 
-- Two fully operational forest sensor nodes (ESP32-S3, MQ135, DHT22, MEMS microphone, SX1278 LoRa) with deep-sleep scheduling and interrupt-based wake-up, achieving a target average current draw below 15 mA over a full duty cycle.
-- A quantized TinyML CNN acoustic classifier (int8) trained on the 7-class FSC22 subset via Edge Impulse, achieving a target on-device inference accuracy of at least 85% for chainsaw, axe, handsaw, gunshot, firework, and tree-falling events against background forest noise, with inference latency below 200 ms on the ESP32-S3.
+- Two fully operational forest sensor nodes (ESP32-S3, MQ135, DHT22, MEMS microphone, SX1278 LoRa) with synchronized peripheral-rail duty cycling under LDSE, achieving a target average current draw below 15 mA over a full duty cycle.
+- A quantized TinyML CNN acoustic classifier (int8) trained on the current 5-class FSC22 subset via Edge Impulse, achieving a target on-device inference accuracy of at least 85% for chainsaw, axe, handsaw, and gunshot events against background forest noise, with inference latency below 200 ms on the ESP32-S3.
 - A working LDSE multi-hop LoRa network link between the two forest nodes and the gateway, including relay operation for node-to-gateway distances greater than 2 km, with measured energy consumption reduced by up to 42% compared to single-hop LoRaWAN operation.
-- A gateway stack (ESP32-S3 LoRa bridge) delivering structured JSON alert packets to a real-time web dashboard over Wi-Fi, enabling geographic visualization of detected events and timely response by forest authorities.
+- A gateway stack (ESP32-WROOM-32 LoRa bridge) delivering CSV telemetry locally and Firebase-backed dashboard updates over Wi-Fi, enabling timely response by forest authorities.
 - Validated system performance through laboratory testing of sensor accuracy, acoustic model inference, and LoRa communication range, followed by limited outdoor field trials in a forested environment to assess end-to-end system reliability and energy consumption.
 
 ---
