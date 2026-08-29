@@ -58,6 +58,22 @@
 #define LDSE_RELAY_ID 1
 #define LDSE_NODE_ID 2
 
+// Human-readable role name for a node ID, for serial log lines (gateway
+// logging who a packet was directly heard from, relay/node logging who
+// their learned parent is, etc). Header-only/dependency-free so it can be
+// used from any role's .cpp (payload.h neighbours must stay lightweight -
+// see AGENTS.md).
+static inline const char* LdseRoleName(uint8_t id)
+{
+    switch (id)
+    {
+        case LDSE_GATEWAY_ID: return "gateway";
+        case LDSE_RELAY_ID: return "relay";
+        case LDSE_NODE_ID: return "node";
+        default: return "unknown";
+    }
+}
+
 // ---------------- Epoch timing [ms] ----------------
 // SYNC / DATA / SLEEP windows (paper Section 2.2.4).
 // 10 s epoch keeps the demo observable on a serial monitor.

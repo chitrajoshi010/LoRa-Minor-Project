@@ -32,6 +32,19 @@ static const char *TAG = "spectrogram";
 // Scale factor for int16 log-mel storage: dB values (-80..0) × 100 → fit int16
 #define LOG_MEL_SCALE     100
 
+// Below this peak |sample| (out of the int16 range produced by the >>16
+// I2S->PCM conversion), the whole 2.5s capture is treated as silent/flat
+// (dead mic rail, bad wiring/solder, I2S DMA stuck returning stale/zeroed
+// buffers, etc.) rather than real audio. Feeding a near-constant buffer
+// through z-score normalization (db - mean)/std_dev collapses to a fixed
+// input tensor, which is why a flat capture reproduces the exact same
+// class+confidence run after run (e.g. "Gunshot (0.92)" for 15+ cycles in a
+// row) instead of the small frame-to-frame variation real audio produces.
+// INMP441 self-noise floor is well above this after the >>16 scaling, so a
+// genuinely quiet room still clears it; only a truly dead/flat signal trips
+// it.
+#define SPECTROGRAM_SILENCE_PEAK_THRESHOLD 20
+
 // ── Heap buffers ──────────────────────────────────────────────────────────────
 static int16_t *s_ring_buf   = NULL;  // N_FFT  int16  — circular sample buffer
 static float   *s_fft_buf    = NULL;  // N_FFT*2 float — interleaved re/im
@@ -138,6 +151,7 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
 
     memset(s_ring_buf, 0, N_FFT * sizeof(int16_t));
     int ring_pos = 0;  // next write position (global index)
+    int16_t peak = 0;  // max |sample| seen this capture (silence/flatline detector)
 
     // ── Pre-read N_FFT/2 real samples (implements centre=True left zero-pad) ──
     {
@@ -156,7 +170,10 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
             }
             int got = (int)(bytes_got / sizeof(int32_t));
             for (int j = 0; j < got; j++) {
-                s_ring_buf[ring_pos % N_FFT] = (int16_t)(hop_raw[j] >> 16);
+                int16_t sample = (int16_t)(hop_raw[j] >> 16);
+                s_ring_buf[ring_pos % N_FFT] = sample;
+                int16_t mag = (sample < 0) ? (int16_t)(-sample) : sample;
+                if (mag > peak) peak = mag;
                 ring_pos++;
             }
             done += got;
@@ -181,7 +198,10 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
             }
             int got = (int)(bytes_got / sizeof(int32_t));
             for (int j = 0; j < got; j++) {
-                s_ring_buf[ring_pos % N_FFT] = (int16_t)(hop_raw[j] >> 16);
+                int16_t sample = (int16_t)(hop_raw[j] >> 16);
+                s_ring_buf[ring_pos % N_FFT] = sample;
+                int16_t mag = (sample < 0) ? (int16_t)(-sample) : sample;
+                if (mag > peak) peak = mag;
                 ring_pos++;
             }
         }
@@ -218,6 +238,19 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
             if (packed >  32767) packed =  32767;
             s_logmel_buf[m * N_FRAMES + f] = (int16_t)packed;
         }
+    }
+
+    // ── Silence/flatline guard ────────────────────────────────────────────
+    // A dead mic rail, bad wiring, or a stuck I2S DMA buffer produces a
+    // near-constant capture. Feeding that through z-score normalization
+    // collapses to a fixed input tensor, which reproduces the exact same
+    // class+confidence run after run instead of the small variation real
+    // audio produces. Bail out before wasting the model invoke on it.
+    if (peak < SPECTROGRAM_SILENCE_PEAK_THRESHOLD) {
+        ESP_LOGW(TAG, "Capture looks silent/flat (peak=%d < %d) - dead mic rail, "
+                       "bad wiring, or stuck I2S DMA? Skipping this cycle.",
+                 peak, SPECTROGRAM_SILENCE_PEAK_THRESHOLD);
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     // ── Second pass: subtract ref_max_db, clamp, z-score, quantize ──────────

@@ -63,7 +63,9 @@ static void OnSync(const LdsePacket& pkt)
     g_synced = true;
     g_phaseOffsetMs = -(int32_t)(g_sync.GetOffsetUs() / 1000);
     g_energy.Wake();
-    printf("[REL] SYNC offset=%ld us, hops=%u\n", (long)g_sync.GetOffsetUs(), g_sync.GetHopCount());
+    printf("[REL] SYNC offset=%ld us, hops=%u, parent=%s(%u)\n",
+           (long)g_sync.GetOffsetUs(), g_sync.GetHopCount(),
+           LdseRoleName(pkt.srcId), pkt.srcId);
 
     g_routing.UpdateParent(pkt.srcId, pkt.layer, pkt.rssiDbm, pkt.energyPct);
 
@@ -88,7 +90,7 @@ static void OnLayerInit(const LdsePacket& pkt)
 {
     g_layer = pkt.layer;
     g_routing.UpdateParent(pkt.srcId, 0, pkt.rssiDbm, pkt.energyPct);
-    printf("[REL] Layer = %u, parent = gateway(%u)\n", g_layer, pkt.srcId);
+    printf("[REL] Layer = %u, parent = %s(%u)\n", g_layer, LdseRoleName(pkt.srcId), pkt.srcId);
 
     bool forward = !g_synced || (uint32_t)(millis() - g_lastSyncFwdMs) >= LDSE_SYNC_FWD_INTERVAL_MS;
     if (!forward)

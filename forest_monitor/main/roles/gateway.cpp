@@ -69,7 +69,15 @@ static const char* MsgTypeName(uint8_t type)
 // if the network upload is queued, dropped, or Wi-Fi is down.
 static void DumpPacketFull(const LdsePacket& pkt, const NodePayload* np, bool haveNp)
 {
+    // Who this packet was directly heard from over the air (srcId, the last
+    // hop) versus who originally generated it (originId). srcId==originId
+    // means it came straight from that node with no relay hop.
+    bool direct = (pkt.srcId == pkt.originId);
     printf("---- RX PACKET ----\n");
+    printf("  heard from %s(%u)%s, originated at %s(%u)\n",
+           LdseRoleName(pkt.srcId), pkt.srcId,
+           direct ? " [direct]" : " [forwarded]",
+           LdseRoleName(pkt.originId), pkt.originId);
     printf("  type=0x%02X (%s) srcId=%u dstId=%u originId=%u hopCount=%u layer=%u\n",
            pkt.type, MsgTypeName(pkt.type), pkt.srcId, pkt.dstId, pkt.originId,
            pkt.hopCount, pkt.layer);

@@ -63,7 +63,9 @@ static void OnSync(const LdsePacket& pkt)
     g_synced = true;
     g_phaseOffsetMs = -(int32_t)(g_sync.GetOffsetUs() / 1000);
     g_energy.Wake();
-    printf("[NODE] SYNC offset=%ld us, hops=%u\n", (long)g_sync.GetOffsetUs(), g_sync.GetHopCount());
+    printf("[NODE] SYNC offset=%ld us, hops=%u, parent=%s(%u)\n",
+           (long)g_sync.GetOffsetUs(), g_sync.GetHopCount(),
+           LdseRoleName(pkt.srcId), pkt.srcId);
     g_routing.UpdateParent(pkt.srcId, g_layer ? g_layer - 1 : pkt.layer, pkt.rssiDbm, pkt.energyPct);
 }
 
@@ -71,7 +73,23 @@ static void OnLayerInit(const LdsePacket& pkt)
 {
     g_layer = pkt.layer;
     g_routing.UpdateParent(pkt.srcId, g_layer - 1, pkt.rssiDbm, pkt.energyPct);
-    printf("[NODE] Layer = %u, parent = relay(%u)\n", g_layer, pkt.srcId);
+    printf("[NODE] Layer = %u, parent = %s(%u)\n", g_layer, LdseRoleName(pkt.srcId), pkt.srcId);
+}
+
+// Drop a dead/unreachable parent. If that was the last entry, fall back to
+// g_synced=false so the main loop re-enters its bootstrap branch, which
+// polls for LAYER_INIT/SYNC on every iteration instead of only inside the
+// node's own (potentially stale-phase) WIN_SYNC window - without this, a
+// node that loses its only parent gets stuck forever printing "No parent
+// yet" since it never goes back to actively hunting for a beacon.
+static void DropParent(uint8_t parentId)
+{
+    g_routing.RemoveParent(parentId);
+    if (!g_routing.HasParent())
+    {
+        g_synced = false;
+        printf("[NODE] Lost last parent: re-entering sync search\n");
+    }
 }
 
 // Wait for a matching ACK (from relay or gateway) within the timeout.
@@ -177,13 +195,13 @@ static void SendData()
             g_radio.Standby();
             if (!g_forwarder.TryTransmit(g_radio, pkt, LDSE_GATEWAY_ID))
             {
-                g_routing.RemoveParent(parent);
+                DropParent(parent);
                 return;
             }
         }
         else
         {
-            g_routing.RemoveParent(parent);
+            DropParent(parent);
             return;
         }
     }
@@ -201,7 +219,7 @@ static void SendData()
         g_txFail++;
         printf("[NODE] No ACK seq=%u: route refresh\n", pkt.seq);
         g_forwarder.OnParentFailure(parent);
-        g_routing.RemoveParent(parent);
+        DropParent(parent);
     }
 }
 

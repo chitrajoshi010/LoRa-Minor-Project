@@ -105,6 +105,16 @@ LdseRadio::Receive(LdsePacket& pkt, uint32_t timeoutMs)
             }
             m_radio->startReceive();
         }
+        else
+        {
+            // Pure SPI-register busy-poll with no FreeRTOS yield starves the
+            // idle task (which resets the task watchdog) when callers loop
+            // this for hundreds of ms to seconds (e.g. the relay's WIN_DATA
+            // listen phase). One tick is well under any LoRa symbol/airtime
+            // margin in this protocol, so it doesn't affect RX latency in
+            // practice.
+            vTaskDelay(1);
+        }
     }
     return false;
 }

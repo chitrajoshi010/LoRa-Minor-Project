@@ -4,3 +4,7 @@
 
 # Local credential overrides (Wi-Fi / Firebase secrets) - never commit
 forest_monitor/sdkconfig.defaults.local
+
+
+# Host-side Python dependency manifest (git-ignored per project convention)
+requirements.txt
