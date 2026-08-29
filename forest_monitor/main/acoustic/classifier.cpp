@@ -166,6 +166,11 @@ bool classifier_start(void)
     return xTaskCreate(classifier_task, "acoustic", 8192, nullptr, 4, nullptr) == pdPASS;
 }
 
+bool classifier_is_mic_powered(void)
+{
+    return s_mic_powered;
+}
+
 void classifier_set_mic_powered(bool powered)
 {
     s_mic_powered = powered;

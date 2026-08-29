@@ -19,6 +19,7 @@
 #include "audio_capture.h"
 #include "hann_window.h"
 #include "mel_filterbank.h"
+#include "classifier.h"
 
 #include <math.h>
 #include <string.h>
@@ -158,6 +159,18 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
         int pre = N_FFT / 2;  // 256 samples
         // Read in chunks of HOP_LENGTH
         for (int done = 0; done < pre; ) {
+            // The mic rail (INMP441) shares the sleep-gate MOSFET with the
+            // gas/DHT22 sensors and is cut asynchronously to this ~2.5 s
+            // capture loop (see classifier.h). If it drops mid-capture, DIN
+            // floats and the remaining samples are garbage even though the
+            // earlier part of the buffer was real audio (so the silence/peak
+            // guard below wouldn't catch it) — abort now and let the caller
+            // retry once the rail is back up, rather than running inference
+            // on a half-real/half-garbage buffer.
+            if (!classifier_is_mic_powered()) {
+                ESP_LOGW(TAG, "Mic rail powered down mid-capture (pre-read) - aborting cycle");
+                return ESP_ERR_INVALID_STATE;
+            }
             int chunk = (pre - done < HOP_LENGTH) ? (pre - done) : HOP_LENGTH;
             // Read `chunk` int32 samples from I2S
             size_t bytes_want = (size_t)chunk * sizeof(int32_t);
@@ -188,6 +201,10 @@ esp_err_t spectrogram_compute(int8_t *out_tensor, float input_scale, int32_t inp
 
         // For frame > 0: read HOP_LENGTH more samples before processing
         if (f > 0) {
+            if (!classifier_is_mic_powered()) {
+                ESP_LOGW(TAG, "Mic rail powered down mid-capture (frame %d) - aborting cycle", f);
+                return ESP_ERR_INVALID_STATE;
+            }
             size_t bytes_want = (size_t)HOP_LENGTH * sizeof(int32_t);
             size_t bytes_got  = 0;
             esp_err_t ret = i2s_channel_read(s_rx_chan, hop_raw, bytes_want,

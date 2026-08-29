@@ -53,6 +53,15 @@ bool classifier_start(void);
  */
 void classifier_set_mic_powered(bool powered);
 
+/**
+ * @return current mic rail power state (see classifier_set_mic_powered()).
+ * Used by spectrogram_compute() to abort a capture already in progress if
+ * the rail is cut mid-capture (a single ~2.5 s capture cycle is not aligned
+ * to the node/relay's epoch WIN_SLEEP boundary, so the rail can drop with a
+ * capture already partway through reading real audio).
+ */
+bool classifier_is_mic_powered(void);
+
 /** Copy the most recent inference result. @return false if none yet. */
 bool classifier_get_latest(AcousticResult* out);
 
