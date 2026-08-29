@@ -53,6 +53,15 @@ static uint32_t g_rxFromNode = 0;
 static uint32_t g_forwardedToGateway = 0;
 static uint32_t g_lastFireEpochMs = 0;
 
+// LdseSleepGate::IsAwake() only reflects the GPIO command we issued to the
+// MOSFET gate, not whether the peripheral rail is actually live downstream
+// (e.g. MOSFET disabled/desoldered/stuck off). dht22_read()'s ack/timeout
+// check is a real electrical proxy for rail power, so we use its last
+// result to gate the mic classifier instead of blindly trusting the epoch
+// schedule - see RelayAlertCheck(). Defaults to true to match
+// LdseSleepGate::Begin()'s optimistic boot assumption.
+static bool g_railConfirmed = true;
+
 static void OnSync(const LdsePacket& pkt)
 {
     uint32_t rxLocalUs = micros();
@@ -167,6 +176,18 @@ static void RelayAlertCheck()
     bool gasValid = railAwake && mq135_read(railAwake, &gas);
     float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
 
+    // Rail feedback: if we believe the rail is awake but the DHT22 didn't
+    // ack, the MOSFET/rail is almost certainly not actually powered (fail
+    // closed). Immediately pause the classifier (which also drops any
+    // cached/garbage-audio result) so it stops burning cycles classifying a
+    // floating mic line; re-enabled the moment a DHT read succeeds again.
+    g_railConfirmed = !railAwake || envValid;
+    classifier_set_mic_powered(g_railConfirmed);
+    if (railAwake && !envValid)
+    {
+        haveAc = false;
+    }
+
     bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
 
@@ -277,14 +298,18 @@ void ldse_relay_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
-                classifier_set_mic_powered(true);
+                // Fail closed on a fresh wake: only re-enable the classifier
+                // if the last DHT22 probe actually confirmed the rail is
+                // live (see RelayAlertCheck()), not just because the epoch
+                // schedule says we "should" be powered.
+                classifier_set_mic_powered(g_railConfirmed);
                 g_radio.SetChannel(LDSE_FREQ_PUC_MHZ, LDSE_SF_NORMAL);
             }
             else if (win == WIN_DATA)
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
-                classifier_set_mic_powered(true);
+                classifier_set_mic_powered(g_railConfirmed);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
             else // WIN_SLEEP

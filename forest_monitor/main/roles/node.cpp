@@ -54,6 +54,13 @@ static uint32_t g_txFail = 0;
 static bool g_synced = false;
 static int32_t g_phaseOffsetMs = 0;
 
+// See relay.cpp's g_railConfirmed: LdseSleepGate::IsAwake() only reflects
+// the GPIO command we issued to the MOSFET gate, not whether the rail is
+// actually live downstream (MOSFET disabled/stuck off). dht22_read()'s
+// ack/timeout is a real electrical proxy for rail power, so we use its
+// last result to gate the mic classifier instead of trusting the schedule.
+static bool g_railConfirmed = true;
+
 static void OnSync(const LdsePacket& pkt)
 {
     uint32_t rxLocalUs = micros();
@@ -124,6 +131,18 @@ static void SendData()
     float gas = 0.0f;
     bool gasValid = railAwake && mq135_read(railAwake, &gas);
     float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
+
+    // Rail feedback: if we believe the rail is awake but the DHT22 didn't
+    // ack, the MOSFET/rail is almost certainly not actually powered (fail
+    // closed). Immediately pause the classifier (which also drops any
+    // cached/garbage-audio result) so it stops classifying a floating mic
+    // line; re-enabled the moment a DHT read succeeds again.
+    g_railConfirmed = !railAwake || envValid;
+    classifier_set_mic_powered(g_railConfirmed);
+    if (railAwake && !envValid)
+    {
+        haveAc = false;
+    }
 
     bool fire = score >= FIRE_ALERT_THRESHOLD;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
@@ -279,14 +298,18 @@ void ldse_node_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
-                classifier_set_mic_powered(true);
+                // Fail closed on a fresh wake: only re-enable the classifier
+                // if the last DHT22 probe actually confirmed the rail is
+                // live (see SendData()), not just because the epoch
+                // schedule says we "should" be powered.
+                classifier_set_mic_powered(g_railConfirmed);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
             else if (win == WIN_DATA)
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
-                classifier_set_mic_powered(true);
+                classifier_set_mic_powered(g_railConfirmed);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
                 delay(LDSE_NODE_TX_OFFSET_MS);
                 SendData();
