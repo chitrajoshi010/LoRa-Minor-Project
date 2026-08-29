@@ -22,10 +22,51 @@
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+
+// Map ESP-IDF Wi-Fi disconnect reason codes to short names so the log tells
+// us *why* the connect failed (NO_AP_FOUND, WRONG_PASSWORD, AUTH_FAIL, ...).
+// Reference: esp_wifi_types.h WIFI_EVENT_STA_DISCONNECTED reason codes.
+static const char* wifi_reason_to_str(uint8_t r)
+{
+    switch (r) {
+    case 1:   return "UNSPECIFIED";
+    case 2:   return "PREV_AUTH_EXPIRE";
+    case 3:   return "DEAUTH_LEAVING";
+    case 4:   return "DISASSOC_DUE_TO_INACTIVITY";
+    case 5:   return "DEAUTH_FOR_INACTIVITY";
+    case 6:   return "DISASSOC_AP_BUSY";
+    case 7:   return "DISASSOC_STA_HAS_LEFT";
+    case 8:   return "STA_HAS_LEFT";
+    case 9:   return "DISASSOC_LOW_ACK";
+    case 10:  return "EXCEEDED_TXOP";
+    case 13:  return "IE_INVALID";
+    case 14:  return "MIC_FAILURE";
+    case 15:  return "4WAY_HANDSHAKE_TIMEOUT/AUTH_EXPIRE";
+    case 16:  return "GROUP_KEY_UPDATE_TIMEOUT";
+    case 17:  return "IE_IN_4WAY_DIFFERS";
+    case 18:  return "GROUP_CIPHER_INVALID";
+    case 19:  return "PAIRWISE_CIPHER_INVALID";
+    case 20:  return "AKMP_INVALID";
+    case 21:  return "UNSUPP_RSN_IE_VERSION";
+    case 22:  return "INVALID_RSN_IE_CAP";
+    case 23:  return "802_1X_AUTH_FAILED";
+    case 24:  return "CIPHER_SUITE_REJECTED";
+    case 200: return "BEACON_TIMEOUT";
+    case 201: return "NO_AP_FOUND";
+    case 202: return "AUTH_FAIL";
+    case 203: return "ASSOC_FAIL";
+    case 204: return "HANDSHAKE_TIMEOUT";
+    case 205: return "CONNECTION_FAIL";
+    case 206: return "AP_TSF_RESET";
+    case 207: return "ROAMING";
+    default:  return "UNKNOWN";
+    }
+}
 
 static const char* TAG = "wifi_mgr";
 
@@ -76,8 +117,13 @@ static void WifiEventHandler(void* arg, esp_event_base_t base, int32_t id, void*
     }
     else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED)
     {
+        wifi_event_sta_disconnected_t* evt = (wifi_event_sta_disconnected_t*)data;
         xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        ESP_LOGW(TAG, "wifi_mgr: disconnected, retry in %lu ms", (unsigned long)s_retry_backoff_ms);
+        ESP_LOGW(TAG, "wifi_mgr: disconnected reason=%u (%s) ssid=%s bssid=" MACSTR
+                      " rssi=%d, retry in %lu ms",
+                      evt->reason, wifi_reason_to_str(evt->reason),
+                      evt->ssid, MAC2STR(evt->bssid), evt->rssi,
+                      (unsigned long)s_retry_backoff_ms);
         ScheduleRetry();
     }
     else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP)
