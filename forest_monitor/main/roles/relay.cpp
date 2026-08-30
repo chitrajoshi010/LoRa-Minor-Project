@@ -6,9 +6,11 @@
  * CAD + backoff and congestion control. Additionally samples its own MQ-135 +
  * DHT22 + INMP441 mic (via the background acoustic classifier task) each
  * epoch and raises an alert to the gateway (carrying the latest acoustic
- * class) when either its fire-risk score exceeds FIRE_ALERT_THRESHOLD or the
- * classifier reports a threat class (Axe/Chainsaw/Gunshot/Handsaw) with
- * confidence >= ACOUSTIC_ALERT_THRESHOLD (see classifier_is_threat()).
+ * class) when either its fire-risk trigger fires (combined score, DHT22-only
+ * envScore, or MQ-135-only gasScore independently crossing their threshold —
+ * see fire_score_evaluate()) or the classifier reports a threat class
+ * (Axe/Chainsaw/Gunshot/Handsaw) with confidence >= ACOUSTIC_ALERT_THRESHOLD
+ * (see classifier_is_threat()).
  */
 
 #include "sdkconfig.h"
@@ -174,7 +176,7 @@ static void RelayAlertCheck()
     bool envValid = railAwake && dht22_read(&temp, &hum);
     float gas = 0.0f;
     bool gasValid = railAwake && mq135_read(railAwake, &gas);
-    float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
+    FireScoreResult fireResult = fire_score_evaluate(gasValid, gas, envValid, temp, hum);
 
     // Rail feedback: if we believe the rail is awake but the DHT22 didn't
     // ack, the MOSFET/rail is almost certainly not actually powered (fail
@@ -188,18 +190,21 @@ static void RelayAlertCheck()
         haveAc = false;
     }
 
-    bool fire = score >= FIRE_ALERT_THRESHOLD;
+    // fireResult.fire is true if the combined score, the DHT22-only envScore,
+    // or the MQ-135-only gasScore crosses its threshold (independent triggers).
+    bool fire = fireResult.fire;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
 
     // Bench-test visibility: log the raw sensor readings every DATA epoch,
     // regardless of whether they're alert-worthy (no radio TX happens below
     // for a no-alert epoch, so this is the only place these values surface).
-    printf("[REL] sensors T=%.1f%s H=%.1f%s gas=%.0f%s class=%s(%.2f) fire_score=%.3f\n",
+    printf("[REL] sensors T=%.1f%s H=%.1f%s gas=%.0f%s class=%s(%.2f) fire_score=%.3f (env=%.3f gas=%.3f)\n",
            envValid ? temp : 0.0f, envValid ? "" : " (n/a)",
            envValid ? hum : 0.0f, envValid ? "" : " (n/a)",
            gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)",
            haveAc ? ACOUSTIC_LABELS[ar.classIdx] : "n/a",
-           haveAc ? ar.confidence[ar.classIdx] : 0.0f, score);
+           haveAc ? ar.confidence[ar.classIdx] : 0.0f, fireResult.combined,
+           fireResult.envScore, fireResult.gasScore);
 
     if (!fire && !acousticAlert)
     {
@@ -219,7 +224,7 @@ static void RelayAlertCheck()
     np.temperature = envValid ? temp : 0.0f;
     np.humidity = envValid ? hum : 0.0f;
     np.gas = gasValid ? gas : 0.0f; // 0 = "no valid reading this epoch"
-    np.fireScore = score;
+    np.fireScore = fireResult.reported; // packet layout unchanged: still one float
 
     LdsePacket pkt;
     pkt.type = fire ? MSG_FIRE_ALERT : MSG_DATA;
@@ -236,7 +241,7 @@ static void RelayAlertCheck()
     g_radio.Standby();
     g_forwarder.TryTransmit(g_radio, pkt, LDSE_GATEWAY_ID);
     printf("[REL] %s alert score=%.3f temp=%.1f%s gas=%.0f%s class=%s\n",
-           fire ? "FIRE" : "ACOUSTIC", score, envValid ? temp : 0.0f,
+           fire ? "FIRE" : "ACOUSTIC", fireResult.reported, envValid ? temp : 0.0f,
            envValid ? "" : " (n/a)", gasValid ? gas : 0.0f,
            gasValid ? "" : " (n/a, rail unpowered)", haveAc ? ACOUSTIC_LABELS[np.classIdx] : "n/a");
 }

@@ -113,6 +113,22 @@ During a fire, gas and temperature rise, and humidity drops — so the score
 goes up. If the score is high enough (threshold 3.0), the device sends a
 **FIRE_ALERT** message instead of a normal DATA message.
 
+Because gas only carries 0.51 of the total weight and temp+humidity only
+0.49, a spike confined to just one sensor group could never push the
+*combined* score to 3.0 by itself. To catch a **DHT22-only** or
+**MQ-135-only** fire signature, `fire_score_evaluate()` also computes two
+renormalized sub-scores on the same 0..3-ish scale:
+
+```
+envScore = (0.37 × temperature(change) + 0.12 × humidity(change)) / 0.49
+gasScore = (0.51 × gas(change)) / 0.51
+```
+
+A **FIRE_ALERT** is sent when the combined score, `envScore`, OR `gasScore`
+reaches 3.0 — so temp/humidity alone or gas alone can each trigger an alert
+independently. The wire packet still carries a single `fireScore` field; it's
+set to whichever of the three scores is currently highest.
+
 > **Sensor gotcha, already handled in code:** when the peripheral power rail
 > is switched off during SLEEP (see §4), the MQ-135's output pin floats up
 > toward the 3.3 V rail instead of reading 0 V. `mq135_read()` rejects any

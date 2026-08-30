@@ -115,10 +115,14 @@ struct NodePayload {
 };
 ```
 
-Sent as `MSG_DATA`; when `fireScore >= FIRE_ALERT_THRESHOLD` (3.0) the node
-sends `MSG_FIRE_ALERT` instead. Normal path is node -> relay (Prc1). If the
-relay is congested (`ShouldBypassToGateway`) or unreachable, the node bypasses
-directly to the gateway on Puc.
+Sent as `MSG_DATA`; the node sends `MSG_FIRE_ALERT` instead when ANY of these
+independent triggers fire (see `fire_score_evaluate()` in `fire_scoring.cpp`):
+the combined weighted score reaches 3.0, the DHT22-only (temp+humidity)
+sub-score reaches 3.0 on its own, or the MQ-135-only (gas) sub-score reaches
+3.0 on its own. `fireScore` in the payload is whichever of the three scores
+is currently highest. Normal path is node -> relay (Prc1). If the relay is
+congested (`ShouldBypassToGateway`) or unreachable, the node bypasses directly
+to the gateway on Puc.
 
 The gateway logs every received packet as CSV:
 

@@ -4,12 +4,13 @@
  * Runs the acoustic classifier in a background task and, each DATA window,
  * builds a NodePayload from the latest inference plus the MQ-135 / DHT22
  * readings and its fire-risk score. A packet is only sent when there is
- * something to report: fire score >= FIRE_ALERT_THRESHOLD, or the acoustic
- * classifier's argmax is a threat class (Axe/Chainsaw/Gunshot/Handsaw) with
- * confidence >= ACOUSTIC_ALERT_THRESHOLD (see classifier_is_threat()).
- * Background / low-confidence epochs send nothing. Sends MSG_DATA to the
- * relay on Prc1; if the fire score exceeds the threshold it sends
- * MSG_FIRE_ALERT instead, and if the relay is unreachable/congested it
+ * something to report: a fire trigger (combined score, DHT22-only envScore,
+ * or MQ-135-only gasScore each independently able to cross their threshold —
+ * see fire_score_evaluate()), or the acoustic classifier's argmax is a threat
+ * class (Axe/Chainsaw/Gunshot/Handsaw) with confidence >= ACOUSTIC_ALERT_THRESHOLD
+ * (see classifier_is_threat()). Background / low-confidence epochs send
+ * nothing. Sends MSG_DATA to the relay on Prc1; if a fire trigger fires it
+ * sends MSG_FIRE_ALERT instead, and if the relay is unreachable/congested it
  * bypasses directly to the gateway on Puc (LdseForwarder::ShouldBypassToGateway).
  */
 
@@ -130,7 +131,7 @@ static void SendData()
     bool envValid = railAwake && dht22_read(&temp, &hum);
     float gas = 0.0f;
     bool gasValid = railAwake && mq135_read(railAwake, &gas);
-    float score = fire_score_compute(gasValid, gas, envValid, temp, hum);
+    FireScoreResult fireResult = fire_score_evaluate(gasValid, gas, envValid, temp, hum);
 
     // Rail feedback: if we believe the rail is awake but the DHT22 didn't
     // ack, the MOSFET/rail is almost certainly not actually powered (fail
@@ -144,18 +145,21 @@ static void SendData()
         haveAc = false;
     }
 
-    bool fire = score >= FIRE_ALERT_THRESHOLD;
+    // fireResult.fire is true if the combined score, the DHT22-only envScore,
+    // or the MQ-135-only gasScore crosses its threshold (independent triggers).
+    bool fire = fireResult.fire;
     bool acousticAlert = haveAc && classifier_is_threat(&ar);
 
     // Bench-test visibility: log the raw sensor readings every DATA epoch,
     // regardless of whether they're alert-worthy (no radio TX happens below
     // for a no-alert epoch, so this is the only place these values surface).
-    printf("[NODE] sensors T=%.1f%s H=%.1f%s gas=%.0f%s class=%s(%.2f) fire_score=%.3f\n",
+    printf("[NODE] sensors T=%.1f%s H=%.1f%s gas=%.0f%s class=%s(%.2f) fire_score=%.3f (env=%.3f gas=%.3f)\n",
            envValid ? temp : 0.0f, envValid ? "" : " (n/a)",
            envValid ? hum : 0.0f, envValid ? "" : " (n/a)",
            gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)",
            haveAc ? ACOUSTIC_LABELS[ar.classIdx] : "n/a",
-           haveAc ? ar.confidence[ar.classIdx] : 0.0f, score);
+           haveAc ? ar.confidence[ar.classIdx] : 0.0f, fireResult.combined,
+           fireResult.envScore, fireResult.gasScore);
 
     if (!fire && !acousticAlert)
     {
@@ -177,7 +181,7 @@ static void SendData()
     np.temperature = envValid ? temp : 0.0f;
     np.humidity = envValid ? hum : 0.0f;
     np.gas = gasValid ? gas : 0.0f; // 0 = "no valid reading this epoch"
-    np.fireScore = score;
+    np.fireScore = fireResult.reported; // packet layout unchanged: still one float
 
     uint8_t parent = g_routing.SelectBestParent();
     uint8_t sf = g_forwarder.GetDataSpreadingFactor();
@@ -231,7 +235,7 @@ static void SendData()
         printf("[NODE] %s seq=%u acked class=%s T=%.1f%s H=%.1f gas=%.0f%s fire=%.3f sf=%u\n",
                fire ? "FIRE" : "DATA", pkt.seq, ACOUSTIC_LABELS[np.classIdx],
                envValid ? temp : 0.0f, envValid ? "" : " (n/a)", envValid ? hum : 0.0f,
-               gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)", score, sf);
+               gasValid ? gas : 0.0f, gasValid ? "" : " (n/a, rail unpowered)", fireResult.reported, sf);
     }
     else
     {
