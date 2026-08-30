@@ -12,12 +12,14 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "driver/gpio.h"
 
 static const char* TAG = "mq135";
 
 #define MQ135_ADC_UNIT    ADC_UNIT_1
 #define MQ135_ADC_CHANNEL ADC_CHANNEL_1 // GPIO2 on ESP32-S3
 #define MQ135_ADC_ATTEN   ADC_ATTEN_DB_12
+#define MQ135_ADC_GPIO    GPIO_NUM_2
 
 // When the sleep-gate MOSFET cuts power to the sensor/3.3V rail, GPIO2
 // floats up toward the 3.3V supply through the sensor's own load resistor
@@ -69,6 +71,26 @@ esp_err_t mq135_init(void)
 
     ESP_LOGI(TAG, "MQ-135 initialized on ADC1 CH1 (GPIO2)");
     return ESP_OK;
+}
+
+void mq135_set_sleeping(bool asleep)
+{
+    // Pull config is independent of the pin's analog/ADC mux selection, so
+    // this can be toggled at runtime without touching the ADC channel setup.
+    if (asleep)
+    {
+        // Peripheral rail is being/has been cut: pull the ADC input down so
+        // it settles near 0V instead of floating up toward the 3.3V rail
+        // through the sensor's own (now de-energised) load resistor.
+        gpio_set_pull_mode(MQ135_ADC_GPIO, GPIO_PULLDOWN_ONLY);
+    }
+    else
+    {
+        // Rail re-powered: remove the pull before sampling again, so it
+        // never biases a genuine reading (matches the pin's default,
+        // no-pull ADC configuration).
+        gpio_set_pull_mode(MQ135_ADC_GPIO, GPIO_FLOATING);
+    }
 }
 
 static float mq135_read_raw_mv(void)

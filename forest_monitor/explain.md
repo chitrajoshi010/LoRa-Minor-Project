@@ -209,6 +209,22 @@ unpowered, and clears any cached (possibly stale) detection on wake. The
 gateway has none of this — it has no MOSFET, no sensors, no mic; it's
 mains-powered and always fully on.
 
+Alongside the MOSFET, `dht22_set_sleeping()`/`mq135_set_sleeping()` are
+called at the same SYNC/SLEEP transitions to reconfigure the two sensor
+GPIOs' internal pull resistors:
+- **DHT22 (GPIO12)**: pull-DOWN while asleep instead of leaving its idle
+  pull-UP enabled — otherwise the ESP32 side pull-up would back-feed current
+  into the unpowered DHT22 through its data-pin ESD clamp diode ("phantom
+  powering"). Restored to pull-UP (protocol idle-high) on wake.
+- **MQ-135 (GPIO2)**: pull-DOWN while asleep so the analog pin settles near
+  0V instead of floating up toward the 3.3V rail through the sensor's own
+  de-energised load-resistor network; pull disabled again before the next
+  ADC read so it never biases a genuine reading.
+
+This is a defense-in-depth electrical improvement — it does not replace the
+existing software validity checks (`mq135_read()`'s `MQ135_RAIL_FLOAT_MV`
+rejection, `dht22_read()`'s ack-timeout), both layers still apply.
+
 ### Gateway boot
 
 1. Prints `[LDSE] Gateway (layer 0)`.
@@ -382,6 +398,11 @@ awake the whole time because it is mains-powered.
 - MQ-135 gas sensor (relay & node): analog pin GPIO2.
 - DHT22 temp/humidity (relay & node): GPIO12.
 - Sleep MOSFET gate/base (relay & node): GPIO10.
+
+Both GPIO2 and GPIO12 have their internal pull resistor toggled in lockstep
+with the MOSFET (`dht22_set_sleeping()` / `mq135_set_sleeping()`) — pull-DOWN
+while the rail is off, restored to the sensor's normal idle configuration
+(pull-UP for DHT22, no pull for MQ-135) once it's powered again. See §4.
 
 > Note: the mic pins on the S3 collided with the radio pins, so the S3 uses
 > MOSI=8 and DIO1=9 instead of the classic 17/16 (see `LdseConfig.h`).

@@ -303,6 +303,8 @@ void ldse_relay_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                dht22_set_sleeping(false);
+                mq135_set_sleeping(false);
                 // Fail closed on a fresh wake: only re-enable the classifier
                 // if the last DHT22 probe actually confirmed the rail is
                 // live (see RelayAlertCheck()), not just because the epoch
@@ -314,6 +316,8 @@ void ldse_relay_main()
             {
                 g_energy.Wake();
                 g_sleepGate.Wake();
+                dht22_set_sleeping(false);
+                mq135_set_sleeping(false);
                 classifier_set_mic_powered(g_railConfirmed);
                 g_radio.SetChannel(LDSE_FREQ_PRC1_MHZ, LDSE_SF_NORMAL);
             }
@@ -321,6 +325,8 @@ void ldse_relay_main()
             {
                 g_energy.EnterSleep();
                 g_sleepGate.Sleep();
+                dht22_set_sleeping(true);
+                mq135_set_sleeping(true);
                 classifier_set_mic_powered(false);
                 g_radio.Sleep();
                 printf("[REL] Sleep: energy=%.3f J battery=%.1f mAh\n",

@@ -28,6 +28,23 @@ extern "C"
 esp_err_t mq135_init(void);
 
 /**
+ * Reconfigure the ADC pin's pull resistor to match the sleep-gate MOSFET
+ * state (see LdseSleepGate.h). Call this immediately alongside
+ * LdseSleepGate::Sleep()/Wake() - not automatic, the caller must invoke it
+ * each transition.
+ *
+ * @param asleep  true when the peripheral rail is about to be/was just cut
+ *                (MOSFET off): enables an internal pull-DOWN on the ADC pin
+ *                so it settles near 0V instead of floating up toward the
+ *                3.3V rail through the sensor's own (now unpowered) load
+ *                resistor network. false when the rail is powered again:
+ *                disables the pull (back to the default no-pull ADC input)
+ *                before any mq135_read() call, so the resistor never biases
+ *                a genuine reading.
+ */
+void mq135_set_sleeping(bool asleep);
+
+/**
  * Read the MQ-135 output as a calibrated voltage in millivolts.
  * @param peripheral_rail_powered  Current sleep-gate MOSFET state (true when
  *                                 the gas sensor / 3.3V peripheral rail is

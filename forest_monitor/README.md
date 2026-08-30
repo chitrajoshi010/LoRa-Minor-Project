@@ -67,8 +67,8 @@ forest_monitor/
 | INMP441 mic BCK | 17 | I2S (relay & node) |
 | INMP441 mic WS  | 15 | I2S (relay & node) |
 | INMP441 mic DIN | 16 | I2S (relay & node) |
-| MQ-135 AOUT | 2 | ADC1_CH1, esp_adc oneshot |
-| DHT22 DATA | 12 | project-authored bit-banged driver in `main/sensors/dht22.cpp` |
+| MQ-135 AOUT | 2 | ADC1_CH1, esp_adc oneshot; pulled DOWN internally while asleep (`mq135_set_sleeping()`), no pull while sampling |
+| DHT22 DATA | 12 | project-authored bit-banged driver in `main/sensors/dht22.cpp`; pulled DOWN internally while asleep (`dht22_set_sleeping()`) instead of leaving its idle pull-up enabled, to avoid phantom-powering the sensor through its ESD diode; pull-UP restored on wake |
 | Sleep MOSFET gate/base | 10 | `CONFIG_LDSE_PIN_SLEEP_GATE`; HIGH during SYNC/DATA, LOW during SLEEP (`LdseSleepGate`), cuts power to the peripheral rail on the parent-synced schedule |
 
 ## Build & flash

@@ -18,6 +18,24 @@ extern "C"
 void dht22_init(int gpio);
 
 /**
+ * Reconfigure the data GPIO's pull resistor to match the sleep-gate MOSFET
+ * state (see LdseSleepGate.h). Call this immediately alongside
+ * LdseSleepGate::Sleep()/Wake() - not automatic, the caller must invoke it
+ * each transition.
+ *
+ * @param asleep  true when the peripheral rail is about to be/was just cut
+ *                (MOSFET off): switches the pin to input + pull-DOWN so the
+ *                line settles near 0V instead of staying pulled up toward
+ *                3.3V while the sensor itself is unpowered (which would
+ *                otherwise back-feed current into the DHT22 through its
+ *                data-pin ESD clamp diode - "phantom powering"). false when
+ *                the rail is powered again: restores the normal open-drain +
+ *                pull-UP idle-high configuration dht22_init() sets up, which
+ *                the protocol needs before a read can succeed.
+ */
+void dht22_set_sleeping(bool asleep);
+
+/**
  * Read temperature (deg C) and relative humidity (%).
  * @return true on a successful, checksum-valid read.
  */

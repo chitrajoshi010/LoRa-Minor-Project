@@ -81,6 +81,34 @@ void dht22_init(int gpio)
     ESP_LOGI(TAG, "DHT22 initialized on GPIO%d", gpio);
 }
 
+void dht22_set_sleeping(bool asleep)
+{
+    if (s_gpio == GPIO_NUM_NC)
+    {
+        return;
+    }
+
+    if (asleep)
+    {
+        // Peripheral rail is being/has been cut: drop the pull-up (which
+        // would otherwise back-feed current into the now-unpowered DHT22
+        // through its data-pin ESD clamp diode - "phantom powering") and
+        // pull the line down instead so it settles near 0V, matching the
+        // sensor's own de-energised state.
+        gpio_set_direction(s_gpio, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(s_gpio, GPIO_PULLDOWN_ONLY);
+    }
+    else
+    {
+        // Rail re-powered: restore the normal open-drain + pull-up idle-high
+        // configuration the protocol needs before a read can succeed (same
+        // as dht22_init()).
+        gpio_set_direction(s_gpio, GPIO_MODE_OUTPUT_OD);
+        gpio_set_pull_mode(s_gpio, GPIO_PULLUP_ONLY);
+        gpio_set_level(s_gpio, 1);
+    }
+}
+
 bool dht22_read(float* out_temp_c, float* out_humidity)
 {
     if (s_gpio == GPIO_NUM_NC)
